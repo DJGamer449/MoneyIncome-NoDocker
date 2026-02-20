@@ -27,7 +27,7 @@ FWMARK="${FWMARK:-0x22b}"
 
 # Routing:
 # - main table stays DIRECT via veth (like the docker container's eth0 route)
-# - TUN_TABLE gets default via tun0
+# - TUN_TABLE gets default via "$TUN_DEV"
 TUN_TABLE="${TUN_TABLE:-100}"
 BYPASS_UDP53="${BYPASS_UDP53:-1}"     # 1=send UDP/53 (DNS) direct (recommended for HTTP proxies)
 BYPASS_ALL_UDP="${BYPASS_ALL_UDP:-0}" # 1=send ALL UDP direct (leaks UDP outside proxy)
@@ -130,6 +130,8 @@ setup_nat_once() {
 }
 
 create_ns_with_veth() {
+  ip netns del "$ns" 2>/dev/null || true
+  ip link del "veth${idx}h" 2>/dev/null || true
   local idx="$1"
   local ns="${BASE_NS}${idx}"
   local veth_host="veth${idx}h"
@@ -240,9 +242,9 @@ configure_policy_routing() {
   # Keep MAIN table = direct via veth (same idea as docker container)
   ip netns exec "$ns" ip route replace default via "$gw" dev "$dev" 2>/dev/null || true
 
-  # TUN_TABLE = everything else via tun0
+  # TUN_TABLE = everything else via "$TUN_DEV"
   ip netns exec "$ns" ip route flush table "$TUN_TABLE" 2>/dev/null || true
-  ip netns exec "$ns" ip route add default dev tun0 table "$TUN_TABLE" 2>/dev/null || true
+  ip netns exec "$ns" ip route add default dev "$TUN_DEV" table "$TUN_TABLE" 2>/dev/null || true
 
   # Rule order matters (lower priority number = earlier)
   # 1) tun2socks' own marked sockets must go DIRECT (avoid proxy loop)
@@ -257,7 +259,7 @@ configure_policy_routing() {
     ip netns exec "$ns" ip rule add iif lo ipproto udp dport 53 lookup main priority 102 2>/dev/null || true
   fi
 
-  # 3) Everything else goes through tun0 (via TUN_TABLE)
+  # 3) Everything else goes through "$TUN_DEV" (via TUN_TABLE)
   ip netns exec "$ns" ip rule add lookup "$TUN_TABLE" priority 200 2>/dev/null || true
 }
 
@@ -277,9 +279,10 @@ start_tun2socks_and_app() {
   read -r B C <<<"$(calc_octets "$idx")"
 
   # Create TUN inside namespace
-  ip netns exec "$ns" ip tuntap add dev tun0 mode tun
-  ip netns exec "$ns" ip addr add "198.18.${B}.${C}/30" dev tun0
-  ip netns exec "$ns" ip link set tun0 up
+  local TUN_DEV="tun${idx}"
+  ip netns exec "$ns" ip tuntap add dev "$TUN_DEV" mode tun
+  ip netns exec "$ns" ip addr add "198.18.${B}.${C}/30" dev "$TUN_DEV"
+  ip netns exec "$ns" ip link set "$TUN_DEV" up
 
   # Avoid proxy-loop
   pin_proxy_route_in_ns "$ns" "$idx" "$host"
@@ -288,11 +291,11 @@ start_tun2socks_and_app() {
   local t_pidfile="$WORKDIR/tun2socks_${idx}.pid"
   local t_logfile="$WORKDIR/tun2socks_${idx}.log"
   ip netns exec "$ns" bash -c "
-    tun2socks -device tun0 -proxy '$proxy' -fwmark '$FWMARK' >'$t_logfile' 2>&1 &
+    tun2socks -device "$TUN_DEV" -proxy '$proxy' -fwmark '$FWMARK' >'$t_logfile' 2>&1 &
     echo \$! > '$t_pidfile'
   "
 
-  # Policy routing (docker-style): keep main=direct, send most traffic to tun0 via table
+  # Policy routing (docker-style): keep main=direct, send most traffic to "$TUN_DEV" via table
   configure_policy_routing "$ns" "$idx"
 
   # (Optional) extra safety: force nameserver IPs direct via veth
