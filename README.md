@@ -64,7 +64,7 @@ socks5://user:pass@5.6.7.8:1080
 
 ------------------------------------------------------------------------
 
-## 🚀 Installation
+## Installation
 
 Make scripts executable:
 
@@ -80,7 +80,7 @@ Select option:
 
 ------------------------------------------------------------------------
 
-## ▶ Usage
+## Usage
 
 sudo ./main.sh
 
@@ -95,7 +95,7 @@ Menu options:
 
 ------------------------------------------------------------------------
 
-## 🧠 How It Works
+## How It Works
 
 Each service:
 
@@ -115,7 +115,7 @@ Namespace prefixes:
 
 ------------------------------------------------------------------------
 
-## 🛑 Stop Everything
+## Stop Everything
 
 Press Ctrl + C
 
