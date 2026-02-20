@@ -7,6 +7,7 @@ A unified multi-service Linux network namespace manager for:
 -   EarnApp
 -   TraffMonetizer
 -   PacketStream
+-   UrNetwork
 -   tun2socks (xjasonlyu native binary)
 
 Run multiple services simultaneously using isolated Linux network
@@ -140,6 +141,7 @@ laws - Proxy provider policies
 ## 👤 Author
 
 MelanTrance
+JessAle (UrNetwork Variant)
 
 ------------------------------------------------------------------------
 
