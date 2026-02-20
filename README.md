@@ -123,7 +123,7 @@ The script will:
 
 ------------------------------------------------------------------------
 ## Proof of Concept
-
+<img width="791" height="622" alt="image" src="https://github.com/user-attachments/assets/8af58716-efa1-496b-8b6e-c5c8ce26e3e6" />
 <img width="685" height="346" alt="image" src="https://github.com/user-attachments/assets/46d0e27c-510b-47c1-b902-a473055d5a52" />
 
 ------------------------------------------------------------------------
