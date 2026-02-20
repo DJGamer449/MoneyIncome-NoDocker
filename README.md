@@ -85,14 +85,8 @@ Select option:
 
 sudo ./main.sh
 
-Menu options:
+<img width="390" height="324" alt="image" src="https://github.com/user-attachments/assets/5591b69d-e06d-4577-a35f-c5bdb6be5a79" />
 
-1)  Run EarnApp\
-2)  Run Traff\
-3)  Run PacketStream\
-4)  Install tun2socks\
-5)  Run ALL\
-6)  Exit
 
 ------------------------------------------------------------------------
 
@@ -128,6 +122,13 @@ The script will:
 -   Exit safely
 
 ------------------------------------------------------------------------
+## Proof of Concept
+
+<img width="940" height="611" alt="image" src="https://github.com/user-attachments/assets/9e76fca7-9831-4187-8a29-e0d87832a8fd" />
+<img width="834" height="620" alt="image" src="https://github.com/user-attachments/assets/8ddcd528-3f24-4f7f-b62e-bf7865b8f0d3" />
+<img width="685" height="346" alt="image" src="https://github.com/user-attachments/assets/46d0e27c-510b-47c1-b902-a473055d5a52" />
+
+------------------------------------------------------------------------
 
 ## ⚠ Disclaimer
 
@@ -147,4 +148,4 @@ laws - Proxy provider policies
 
 ## ⭐ Contribute
 
-Pull requests and improvements are welcome.
+Pull requests and improvements are welcome. , Make Sure to Give Us a Stars if you found this useful
