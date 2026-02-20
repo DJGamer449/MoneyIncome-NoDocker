@@ -72,7 +72,17 @@ run_packetstream() {
 }
 
 run_urnetwork() {
-  echo "Starting urnetwork..."
+  echo "Starting UrNetwork..."
+
+  # Check if JWT already exists
+  if [[ -f "$HOME/.urnetwork/jwt" ]]; then
+    echo "UrNetwork JWT detected. Skipping auth setup..."
+  else
+    echo "No UrNetwork JWT found. Running first-time authentication..."
+    ./provider auth
+    echo "Authentication complete."
+  fi
+
   sudo BASE_NS=urns VETH_PREFIX=ur WORKDIR=/tmp/ur_multi \
     bash "$UR_SCRIPT" proxies.txt &
   PIDS+=($!)
@@ -83,7 +93,7 @@ menu() {
   echo "1) Run EarnApp"
   echo "2) Run Traff"
   echo "3) Run PacketStream"
-  echo "4) Run urnetwork"
+  echo "4) Run UrNetwork"
   echo "5) Install tun2socks"
   echo "6) Install EarnApp Binary"
   echo "7) Install Dependencies"
