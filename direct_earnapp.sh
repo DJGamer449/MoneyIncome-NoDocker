@@ -93,6 +93,8 @@ setup_nat_once() {
 }
 
 create_ns_with_veth() {
+  ip netns del "$ns" 2>/dev/null || true
+  ip link del "veth${idx}h" 2>/dev/null || true
   local idx="$1"
   local ns="${BASE_NS}${idx}"
   local veth_host="veth${idx}h"
@@ -358,4 +360,5 @@ main() {
 trap cleanup EXIT
 
 main "$@"
+
 
