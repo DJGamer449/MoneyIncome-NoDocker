@@ -43,7 +43,7 @@ namespaces with proxy routing.
 
 ## 📂 Project Structure
 
-grand_manager.sh\
+mâin.sh\
 direct_earnapp.sh\
 direct_traff.sh\
 install_tun2socks.sh\
@@ -72,7 +72,7 @@ chmod +x \*.sh
 
 Run manager:
 
-sudo ./grand_manager.sh
+sudo ./main.sh
 
 Select option:
 
@@ -82,7 +82,7 @@ Select option:
 
 ## ▶ Usage
 
-sudo ./grand_manager.sh
+sudo ./main.sh
 
 Menu options:
 
