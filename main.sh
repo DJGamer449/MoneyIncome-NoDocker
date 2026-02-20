@@ -14,19 +14,55 @@ cleanup() {
   EXITING=1
 
   echo
-  echo "Ctrl+C detected. Stopping all running services..."
+  echo "Stopping all running services..."
 
   for pid in "${PIDS[@]:-}"; do
     kill "$pid" 2>/dev/null || true
   done
 
   wait 2>/dev/null || true
-
   echo "All services stopped."
   exit 0
 }
 
 trap cleanup INT
+
+# ==============================
+# Dependency Installer
+# ==============================
+install_dependencies() {
+  echo "Installing required dependencies..."
+  sudo apt update
+  sudo apt install -y \
+    curl \
+    wget \
+    unzip \
+    iproute2 \
+    iptables \
+    uuid-runtime \
+    jq \
+    net-tools
+}
+
+# ==============================
+# Install EarnApp
+# ==============================
+install_earnapp() {
+  echo "Installing EarnApp binary..."
+  install_dependencies
+
+  wget -qO- https://brightdata.com/static/earnapp/install.sh > /tmp/earnapp.sh
+  sudo bash /tmp/earnapp.sh
+
+  echo
+  echo "EarnApp installed successfully."
+  echo "Binary location:"
+  command -v earnapp || echo "earnapp not found in PATH"
+}
+
+# ==============================
+# Run Services
+# ==============================
 
 run_earnapp() {
   echo "Starting EarnApp..."
@@ -64,6 +100,10 @@ install_tun() {
   sudo bash "$INSTALL_SCRIPT"
 }
 
+# ==============================
+# Menu
+# ==============================
+
 menu() {
   echo
   echo "====== GRAND NETWORK MANAGER ======"
@@ -71,7 +111,9 @@ menu() {
   echo "2) Run Traff"
   echo "3) Run PacketStream"
   echo "4) Install tun2socks"
-  echo "5) Run ALL"
+  echo "5) Install EarnApp Binary"
+  echo "6) Install Dependencies"
+  echo "7) Run ALL"
   echo "0) Exit"
   echo "===================================="
 }
@@ -85,7 +127,9 @@ while true; do
     2) run_traff ;;
     3) run_packetstream ;;
     4) install_tun ;;
-    5)
+    5) install_earnapp ;;
+    6) install_dependencies ;;
+    7)
        run_earnapp
        run_traff
        run_packetstream
