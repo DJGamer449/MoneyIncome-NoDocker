@@ -14,7 +14,7 @@ TOTAL_TIMEOUT="${TOTAL_TIMEOUT:-12}"
 # DNS & Routing Settings
 FORCE_NS_DNS="${FORCE_NS_DNS:-1}"
 NS_DNS_LIST="${NS_DNS_LIST:-1.1.1.1 8.8.8.8}"
-BASE_NS="${BASE_NS:-pxns}"
+BASE_NS="pxns"
 WORKDIR="${WORKDIR:-/tmp/earnapp_clones}"
 mkdir -p "$WORKDIR"
 
@@ -93,8 +93,6 @@ setup_nat_once() {
 }
 
 create_ns_with_veth() {
-  ip netns del "$ns" 2>/dev/null || true
-  ip link del "veth${idx}h" 2>/dev/null || true
   local idx="$1"
   local ns="${BASE_NS}${idx}"
   local veth_host="veth${idx}h"
@@ -188,7 +186,7 @@ configure_policy_routing() {
   
   ip netns exec "$ns" ip route replace default via "$gw" dev "$dev" 2>/dev/null || true
   ip netns exec "$ns" ip route flush table "$TUN_TABLE" 2>/dev/null || true
-  ip netns exec "$ns" ip route add default dev "$TUN_DEV" table "$TUN_TABLE" 2>/dev/null || true
+  ip netns exec "$ns" ip route add default dev tun0 table "$TUN_TABLE" 2>/dev/null || true
   
   ip netns exec "$ns" ip rule add fwmark "$FWMARK" lookup main priority 100 2>/dev/null || true
   if [[ "$BYPASS_ALL_UDP" == "1" ]]; then
@@ -212,18 +210,17 @@ start_tun2socks_and_app() {
   ns="$(create_ns_with_veth "$idx")"
   local B C
   read -r B C <<<"$(calc_octets "$idx")"
-
-  local TUN_DEV="tun${idx}"
-  ip netns exec "$ns" ip tuntap add dev "$TUN_DEV" mode tun
-  ip netns exec "$ns" ip addr add "198.18.${B}.${C}/30" dev "$TUN_DEV"
-  ip netns exec "$ns" ip link set "$TUN_DEV" up
+  
+  ip netns exec "$ns" ip tuntap add dev tun0 mode tun
+  ip netns exec "$ns" ip addr add "198.18.${B}.${C}/30" dev tun0
+  ip netns exec "$ns" ip link set tun0 up
   
   pin_proxy_route_in_ns "$ns" "$idx" "$host"
   
   local t_pidfile="$WORKDIR/tun2socks_${idx}.pid"
   local t_logfile="$WORKDIR/tun2socks_${idx}.log"
   ip netns exec "$ns" bash -c "
-    tun2socks -device "$TUN_DEV" -proxy '$proxy' -fwmark '$FWMARK' >'$t_logfile' 2>&1 &
+    tun2socks -device tun0 -proxy '$proxy' -fwmark '$FWMARK' >'$t_logfile' 2>&1 &
     echo \$! > '$t_pidfile'
   "
   
@@ -358,7 +355,4 @@ main() {
 }
 
 trap cleanup EXIT
-
 main "$@"
-
-
