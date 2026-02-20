@@ -140,8 +140,8 @@ laws - Proxy provider policies
 
 ## 👤 Author
 
-MelanTrance
-JessAle (UrNetwork Variant)
+- MelanTrance
+- JessAle (UrNetwork Variant)
 
 ------------------------------------------------------------------------
 
