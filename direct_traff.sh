@@ -18,7 +18,7 @@ TOTAL_TIMEOUT="${TOTAL_TIMEOUT:-12}"
 FORCE_NS_DNS="${FORCE_NS_DNS:-1}"        # keep 1
 NS_DNS_LIST="${NS_DNS_LIST:-1.1.1.1 8.8.8.8}"  # space-separated
 
-BASE_NS="pxns"
+BASE_NS="${BASE_NS:-traff}"
 VETH_PREFIX="${VETH_PREFIX:-veth}"
 WORKDIR="${WORKDIR:-/tmp/pxns_clones}"
 mkdir -p "$WORKDIR"

@@ -14,7 +14,7 @@ TOTAL_TIMEOUT="${TOTAL_TIMEOUT:-12}"
 # DNS & Routing Settings
 FORCE_NS_DNS="${FORCE_NS_DNS:-1}"
 NS_DNS_LIST="${NS_DNS_LIST:-1.1.1.1 8.8.8.8}"
-BASE_NS="pxns"
+BASE_NS="${BASE_NS:-earnns}"
 VETH_PREFIX="${VETH_PREFIX:-veth}"
 WORKDIR="${WORKDIR:-/tmp/earnapp_clones}"
 mkdir -p "$WORKDIR"
