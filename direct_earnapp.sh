@@ -14,7 +14,7 @@ TOTAL_TIMEOUT="${TOTAL_TIMEOUT:-12}"
 # DNS & Routing Settings
 FORCE_NS_DNS="${FORCE_NS_DNS:-1}"
 NS_DNS_LIST="${NS_DNS_LIST:-1.1.1.1 8.8.8.8}"
-BASE_NS="earn_1"
+BASE_NS="pxns"
 WORKDIR="${WORKDIR:-/tmp/earnapp_clones}"
 mkdir -p "$WORKDIR"
 
@@ -100,7 +100,13 @@ create_ns_with_veth() {
   local B C
   read -r B C <<<"$(calc_octets "$idx")"
   
-  ip netns add "$ns" 2>/dev/null || true
+  
+# --- HARD RESET NAMESPACE ---
+ip netns del "$ns" 2>/dev/null || true
+ip link del "$veth_host" 2>/dev/null || true
+ip link del "$veth_ns" 2>/dev/null || true
+ip netns add "$ns" 2>/dev/null || true
+
   if ! ip link show "$veth_host" >/dev/null 2>&1; then
     ip link add "$veth_host" type veth peer name "$veth_ns"
   fi
@@ -211,7 +217,11 @@ start_tun2socks_and_app() {
   local B C
   read -r B C <<<"$(calc_octets "$idx")"
   
-  ip netns exec "$ns" ip tuntap add dev tun0 mode tun
+  
+# --- SAFE TUN RESET ---
+ip netns exec "$ns" ip link del tun0 2>/dev/null || true
+ip netns exec "$ns" ip tuntap add dev tun0 mode tun 2>/dev/null || true
+
   ip netns exec "$ns" ip addr add "198.18.${B}.${C}/30" dev tun0
   ip netns exec "$ns" ip link set tun0 up
   
@@ -355,5 +365,4 @@ main() {
 }
 
 trap cleanup EXIT
-
 main "$@"
