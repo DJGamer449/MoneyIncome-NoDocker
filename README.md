@@ -124,7 +124,6 @@ The script will:
 ------------------------------------------------------------------------
 ## Proof of Concept
 
-<img width="940" height="611" alt="image" src="https://github.com/user-attachments/assets/9e76fca7-9831-4187-8a29-e0d87832a8fd" />
 <img width="685" height="346" alt="image" src="https://github.com/user-attachments/assets/46d0e27c-510b-47c1-b902-a473055d5a52" />
 
 ------------------------------------------------------------------------
