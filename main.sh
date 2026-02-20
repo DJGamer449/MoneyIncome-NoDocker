@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+
+# --- Silent CRLF Normalization (All .sh Files) ---
+for f in "$(dirname "$0")"/*.sh; do
+  [ -f "$f" ] && sed -i 's/\r$//' "$f" 2>/dev/null || true
+done
 set -euo pipefail
 
 BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
