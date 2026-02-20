@@ -81,33 +81,29 @@ install_earnapp() {
 # ==========================
 run_earnapp() {
   echo "Starting EarnApp..."
-  sudo BASE_NS=earnns WORKDIR=/tmp/earnapp_multi \
+  sudo BASE_NS=earnns VETH_PREFIX=earn WORKDIR=/tmp/earnapp_multi \
     bash "$EARNAPP_SCRIPT" proxies.txt &
   PIDS+=($!)
 }
 
 run_traff() {
   [[ -z "$TRAFF_TOKEN" ]] && { echo "Traff token not set."; return; }
-
   cp "$TRAFF_SCRIPT" /tmp/direct_traff_runtime.sh
-  sed -i "s|--token \".*\"|--token \"$TRAFF_TOKEN\"|g" \
-    /tmp/direct_traff_runtime.sh
+  sed -i "s|--token \".*\"|--token \"$TRAFF_TOKEN\"|g" /tmp/direct_traff_runtime.sh
 
   echo "Starting Traff..."
-  sudo BASE_NS=traffns WORKDIR=/tmp/traff_multi \
+  sudo BASE_NS=traffns VETH_PREFIX=traff WORKDIR=/tmp/traff_multi \
     bash /tmp/direct_traff_runtime.sh proxies.txt &
   PIDS+=($!)
 }
 
 run_packetstream() {
   [[ -z "$PS_TOKEN" ]] && { echo "PacketStream token not set."; return; }
-
   cp "$TRAFF_SCRIPT" /tmp/direct_ps_runtime.sh
-  sed -i "s|APP_CMD=.*|APP_CMD=( env CID=\"$PS_TOKEN\" PS_IS_DOCKER=true ./psclient )|g" \
-    /tmp/direct_ps_runtime.sh
+  sed -i "s|APP_CMD=.*|APP_CMD=( env CID=\"$PS_TOKEN\" PS_IS_DOCKer=true ./psclient )|g" /tmp/direct_ps_runtime.sh
 
   echo "Starting PacketStream..."
-  sudo BASE_NS=psns WORKDIR=/tmp/ps_multi \
+  sudo BASE_NS=psns VETH_PREFIX=ps WORKDIR=/tmp/ps_multi \
     bash /tmp/direct_ps_runtime.sh proxies.txt &
   PIDS+=($!)
 }

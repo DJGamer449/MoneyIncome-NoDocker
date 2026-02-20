@@ -15,6 +15,7 @@ TOTAL_TIMEOUT="${TOTAL_TIMEOUT:-12}"
 FORCE_NS_DNS="${FORCE_NS_DNS:-1}"
 NS_DNS_LIST="${NS_DNS_LIST:-1.1.1.1 8.8.8.8}"
 BASE_NS="pxns"
+VETH_PREFIX="${VETH_PREFIX:-veth}"
 WORKDIR="${WORKDIR:-/tmp/earnapp_clones}"
 mkdir -p "$WORKDIR"
 
@@ -95,8 +96,8 @@ setup_nat_once() {
 create_ns_with_veth() {
   local idx="$1"
   local ns="${BASE_NS}${idx}"
-  local veth_host="veth${idx}h"
-  local veth_ns="veth${idx}n"
+  local veth_host="${VETH_PREFIX}${idx}h"  
+  local veth_ns="${VETH_PREFIX}${idx}n"    
   local B C
   read -r B C <<<"$(calc_octets "$idx")"
   
@@ -129,7 +130,7 @@ pin_proxy_route_in_ns() {
   local B C
   read -r B C <<<"$(calc_octets "$idx")"
   local gw="10.${B}.${C}.1"
-  local dev="veth${idx}n"
+  local dev="${VETH_PREFIX}${idx}n"
   
   if [[ "$proxy_host" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     ip netns exec "$ns" ip route replace "$proxy_host/32" via "$gw" dev "$dev" || true
@@ -147,7 +148,7 @@ bypass_dns_via_veth() {
   local B C
   read -r B C <<<"$(calc_octets "$idx")"
   local gw="10.${B}.${C}.1"
-  local dev="veth${idx}n"
+  local dev="${VETH_PREFIX}${idx}n"
   local resolv="/etc/netns/$ns/resolv.conf"
   
   if [[ -f "$resolv" ]]; then
@@ -182,7 +183,7 @@ configure_policy_routing() {
   local B C
   read -r B C <<<"$(calc_octets "$idx")"
   local gw="10.${B}.${C}.1"
-  local dev="veth${idx}n"
+  local dev="${VETH_PREFIX}${idx}n"
   
   ip netns exec "$ns" ip route replace default via "$gw" dev "$dev" 2>/dev/null || true
   ip netns exec "$ns" ip route flush table "$TUN_TABLE" 2>/dev/null || true
