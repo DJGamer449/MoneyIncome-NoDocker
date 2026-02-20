@@ -14,6 +14,12 @@ INSTALL_SCRIPT="$BASE_DIR/install_tun2socks.sh"
 PIDS=()
 EXITING=0
 
+TRAFF_TOKEN=""
+PS_TOKEN=""
+
+# ==========================
+# Cleanup
+# ==========================
 cleanup() {
   [[ "$EXITING" == "1" ]] && return
   EXITING=1
@@ -29,14 +35,23 @@ cleanup() {
   echo "All services stopped."
   exit 0
 }
-
 trap cleanup INT
 
-# ==============================
+# ==========================
+# Ask Tokens At Startup
+# ==========================
+ask_tokens() {
+  echo "========== TOKEN SETUP =========="
+  read -rp "Enter Traff token (or leave blank): " TRAFF_TOKEN
+  read -rp "Enter PacketStream CID token (or leave blank): " PS_TOKEN
+  echo "================================="
+}
+
+# ==========================
 # Dependency Installer
-# ==============================
+# ==========================
 install_dependencies() {
-  echo "Installing required dependencies..."
+  echo "Installing dependencies..."
   sudo apt update
   sudo apt install -y \
     curl \
@@ -49,26 +64,20 @@ install_dependencies() {
     net-tools
 }
 
-# ==============================
+# ==========================
 # Install EarnApp
-# ==============================
+# ==========================
 install_earnapp() {
-  echo "Installing EarnApp binary..."
   install_dependencies
-
+  echo "Installing EarnApp..."
   wget -qO- https://brightdata.com/static/earnapp/install.sh > /tmp/earnapp.sh
   sudo bash /tmp/earnapp.sh
-
-  echo
-  echo "EarnApp installed successfully."
-  echo "Binary location:"
-  command -v earnapp || echo "earnapp not found in PATH"
+  echo "EarnApp installed."
 }
 
-# ==============================
+# ==========================
 # Run Services
-# ==============================
-
+# ==========================
 run_earnapp() {
   echo "Starting EarnApp..."
   sudo BASE_NS=earnns WORKDIR=/tmp/earnapp_multi \
@@ -77,10 +86,11 @@ run_earnapp() {
 }
 
 run_traff() {
-  read -rp "Enter Traff token: " TOKEN
+  [[ -z "$TRAFF_TOKEN" ]] && { echo "Traff token not set."; return; }
 
   cp "$TRAFF_SCRIPT" /tmp/direct_traff_runtime.sh
-  sed -i "s|--token \".*\"|--token \"$TOKEN\"|g" /tmp/direct_traff_runtime.sh
+  sed -i "s|--token \".*\"|--token \"$TRAFF_TOKEN\"|g" \
+    /tmp/direct_traff_runtime.sh
 
   echo "Starting Traff..."
   sudo BASE_NS=traffns WORKDIR=/tmp/traff_multi \
@@ -89,10 +99,10 @@ run_traff() {
 }
 
 run_packetstream() {
-  read -rp "Enter PacketStream CID token: " TOKEN
+  [[ -z "$PS_TOKEN" ]] && { echo "PacketStream token not set."; return; }
 
   cp "$TRAFF_SCRIPT" /tmp/direct_ps_runtime.sh
-  sed -i "s|APP_CMD=.*|APP_CMD=( env CID=\"$TOKEN\" PS_IS_DOCKER=true ./psclient )|g" \
+  sed -i "s|APP_CMD=.*|APP_CMD=( env CID=\"$PS_TOKEN\" PS_IS_DOCKER=true ./psclient )|g" \
     /tmp/direct_ps_runtime.sh
 
   echo "Starting PacketStream..."
@@ -105,10 +115,9 @@ install_tun() {
   sudo bash "$INSTALL_SCRIPT"
 }
 
-# ==============================
+# ==========================
 # Menu
-# ==============================
-
+# ==========================
 menu() {
   echo
   echo "====== GRAND NETWORK MANAGER ======"
@@ -122,6 +131,11 @@ menu() {
   echo "0) Exit"
   echo "===================================="
 }
+
+# ==========================
+# Main
+# ==========================
+ask_tokens
 
 while true; do
   menu
