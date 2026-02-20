@@ -1,4 +1,4 @@
-# Grand Network Manager
+# MoneyIncome NoDocker
 
 ![Logo](logo.png)
 
