@@ -239,7 +239,7 @@ start_tun2socks_and_app() {
       cp -r "/root/.urnetwork" "$inst_dir/"
   fi
 
-  echo "[$idx] Starting UpRock via proxy=$proxy (netns=$ns)"
+  echo "[$idx] Starting UrNetwork via proxy=$proxy (netns=$ns)"
   ip netns exec "$ns" env -i HOME="$inst_dir" PATH="$PATH" \
     bash -c "cd '$(pwd)'; ${APP_CMD[*]}" >"$WORKDIR/app_${idx}.log" 2>&1 &
 
