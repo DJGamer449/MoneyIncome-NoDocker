@@ -2,8 +2,7 @@
 set -euo pipefail
 
 # ========= USER SETTINGS =========
-#APP_CMD=(env CID="${CID:-<token>}" PS_IS_DOCKER="true" ./psclient )
-APP_CMD=( ./cli start accept --token "<token>" )
+APP_CMD=( ./cli start accept --token "nblQB8tNIf6aj1Hs51/SJXqflMy0x1jPnsT6kVcYB8s=" )
 PROXY_FILE="${1:-proxies.txt}"
 
 # Toggle checks:
@@ -18,7 +17,8 @@ TOTAL_TIMEOUT="${TOTAL_TIMEOUT:-12}"
 FORCE_NS_DNS="${FORCE_NS_DNS:-1}"        # keep 1
 NS_DNS_LIST="${NS_DNS_LIST:-1.1.1.1 8.8.8.8}"  # space-separated
 
-BASE_NS="${BASE_NS:-traff}"
+# --- CRITICAL FIX: Allow dynamic overrides for parallel execution ---
+BASE_NS="${BASE_NS:-pxns}"
 VETH_PREFIX="${VETH_PREFIX:-veth}"
 WORKDIR="${WORKDIR:-/tmp/pxns_clones}"
 mkdir -p "$WORKDIR"
@@ -133,8 +133,9 @@ setup_nat_once() {
 create_ns_with_veth() {
   local idx="$1"
   local ns="${BASE_NS}${idx}"
-  local veth_host="${VETH_PREFIX}${idx}h" 
-  local veth_ns="${VETH_PREFIX}${idx}n"   
+  local veth_host="${VETH_PREFIX}${idx}h" # Fixed
+  local veth_ns="${VETH_PREFIX}${idx}n"   # Fixed
+
   local B C
   read -r B C <<<"$(calc_octets "$idx")"
 
@@ -176,7 +177,7 @@ pin_proxy_route_in_ns() {
   read -r B C <<<"$(calc_octets "$idx")"
 
   local gw="10.${B}.${C}.1"
-  local dev="${VETH_PREFIX}${idx}n"
+  local dev="${VETH_PREFIX}${idx}n" # Fixed
 
   # Ensure reaching proxy server bypasses tun (avoid loop)
   if [[ "$proxy_host" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -198,7 +199,7 @@ bypass_dns_via_veth() {
   read -r B C <<<"$(calc_octets "$idx")"
 
   local gw="10.${B}.${C}.1"
-  local dev="${VETH_PREFIX}${idx}n"
+  local dev="${VETH_PREFIX}${idx}n" # Fixed
   local resolv="/etc/netns/$ns/resolv.conf"
 
   if [[ -f "$resolv" ]]; then
@@ -235,7 +236,7 @@ configure_policy_routing() {
   local B C
   read -r B C <<<"$(calc_octets "$idx")"
   local gw="10.${B}.${C}.1"
-  local dev="${VETH_PREFIX}${idx}n"
+  local dev="${VETH_PREFIX}${idx}n" # Fixed
 
   # Keep MAIN table = direct via veth (same idea as docker container)
   ip netns exec "$ns" ip route replace default via "$gw" dev "$dev" 2>/dev/null || true
@@ -320,7 +321,7 @@ cleanup() {
 
   for ns in $(ip netns list | awk '{print $1}' | grep -E "^${BASE_NS}[0-9]+$" || true); do
     local idx="${ns#${BASE_NS}}"
-    ip link del "veth${idx}h" 2>/dev/null || true
+    ip link del "${VETH_PREFIX}${idx}h" 2>/dev/null || true # Fixed
     ip netns del "$ns" 2>/dev/null || true
     rm -rf "/etc/netns/$ns" 2>/dev/null || true
   done

@@ -15,7 +15,7 @@ TOTAL_TIMEOUT="${TOTAL_TIMEOUT:-12}"
 FORCE_NS_DNS="${FORCE_NS_DNS:-1}"
 NS_DNS_LIST="${NS_DNS_LIST:-1.1.1.1 8.8.8.8}"
 BASE_NS="${BASE_NS:-earnns}"
-VETH_PREFIX="${VETH_PREFIX:-veth}"
+VETH_PREFIX="${VETH_PREFIX:-earn}"  # Changed from hardcoded 'veth'
 WORKDIR="${WORKDIR:-/tmp/earnapp_clones}"
 mkdir -p "$WORKDIR"
 
@@ -96,8 +96,8 @@ setup_nat_once() {
 create_ns_with_veth() {
   local idx="$1"
   local ns="${BASE_NS}${idx}"
-  local veth_host="${VETH_PREFIX}${idx}h"  
-  local veth_ns="${VETH_PREFIX}${idx}n"    
+  local veth_host="${VETH_PREFIX}${idx}h"  # Using variable
+  local veth_ns="${VETH_PREFIX}${idx}n"    # Using variable
   local B C
   read -r B C <<<"$(calc_octets "$idx")"
   
@@ -130,7 +130,7 @@ pin_proxy_route_in_ns() {
   local B C
   read -r B C <<<"$(calc_octets "$idx")"
   local gw="10.${B}.${C}.1"
-  local dev="${VETH_PREFIX}${idx}n"
+  local dev="${VETH_PREFIX}${idx}n" # Using variable
   
   if [[ "$proxy_host" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     ip netns exec "$ns" ip route replace "$proxy_host/32" via "$gw" dev "$dev" || true
@@ -148,7 +148,7 @@ bypass_dns_via_veth() {
   local B C
   read -r B C <<<"$(calc_octets "$idx")"
   local gw="10.${B}.${C}.1"
-  local dev="${VETH_PREFIX}${idx}n"
+  local dev="${VETH_PREFIX}${idx}n" # Using variable
   local resolv="/etc/netns/$ns/resolv.conf"
   
   if [[ -f "$resolv" ]]; then
@@ -183,7 +183,7 @@ configure_policy_routing() {
   local B C
   read -r B C <<<"$(calc_octets "$idx")"
   local gw="10.${B}.${C}.1"
-  local dev="${VETH_PREFIX}${idx}n"
+  local dev="${VETH_PREFIX}${idx}n" # Using variable
   
   ip netns exec "$ns" ip route replace default via "$gw" dev "$dev" 2>/dev/null || true
   ip netns exec "$ns" ip route flush table "$TUN_TABLE" 2>/dev/null || true
@@ -230,14 +230,13 @@ start_tun2socks_and_app() {
   reset_ns_firewall_allow_all "$ns"
 
   # ==========================================
-  # EARNAPP FILESYSTEM ISOLATION (Fixed)
+  # EARNAPP FILESYSTEM ISOLATION 
   # ==========================================
   
   local inst_dir="$WORKDIR/inst_${idx}"
   local etc_dir="$inst_dir/etc"
   mkdir -p "$etc_dir"
   
-  # 1. Generate or Load persistent UUID (Using printf to prevent newlines)
   local uuid_file="$inst_dir/uuid.txt"
   if [[ ! -f "$uuid_file" ]]; then
     local raw_uuid=$(uuidgen | tr -d '-')
@@ -245,20 +244,17 @@ start_tun2socks_and_app() {
   fi
   local earnapp_uuid=$(cat "$uuid_file")
   
-  # 2. Write data expected by EarnApp EXACTLY as docker did
   printf "%s" "$earnapp_uuid" > "$etc_dir/uuid"
   touch "$etc_dir/status"
   chmod a+wr "$etc_dir" "$etc_dir/status" "$etc_dir/uuid"
 
   echo "[$idx] Starting EarnApp UUID: https://earnapp.com/r/$earnapp_uuid via proxy=$proxy"
 
-  # 3. Run Earnapp using unshare to isolate the filesystem
   ip netns exec "$ns" unshare -m bash -c "
     mount --make-rprivate / 2>/dev/null || true
     mkdir -p /etc/earnapp
     mount --bind '$etc_dir' /etc/earnapp
     
-    # Exactly match your working docker startup sequence
     /usr/bin/earnapp start &
     sleep 5
     exec /usr/bin/earnapp run
@@ -273,30 +269,26 @@ cleanup() {
   for f in "$WORKDIR"/tun2socks_*.pid; do [[ -f "$f" ]] && kill "$(cat "$f")" 2>/dev/null || true; done
   for ns in $(ip netns list | awk '{print $1}' | grep -E "^${BASE_NS}[0-9]+$" || true); do
     local idx="${ns#$BASE_NS}"
-    ip link del "veth${idx}h" 2>/dev/null || true
+    ip link del "${VETH_PREFIX}${idx}h" 2>/dev/null || true # Using variable
     ip netns del "$ns" 2>/dev/null || true
     rm -rf "/etc/netns/$ns" 2>/dev/null || true
   done
 }
 
-# ... (Keep all functions from your script: require_root, setup_nat_once, etc.) ...
-
-# New function to fetch IDs from isolated environments
 collect_ids() {
   local used_count="$1"
   local output_file="earnapp.txt"
   echo "------------------------------------------------"
   echo "Waiting for EarnApp instances to initialize IDs (15s)..."
-  sleep 15  # Buffer time for EarnApp to register with servers
+  sleep 15  
   
-  > "$output_file" # Clear previous content
+  > "$output_file" 
   
   for (( idx=1; idx<=used_count; idx++ )); do
     local ns="${BASE_NS}${idx}"
     local inst_dir="$WORKDIR/inst_${idx}"
     local etc_dir="$inst_dir/etc"
     
-    # We must use unshare -m to "see" the bound /etc/earnapp for each instance
     local earnapp_id=$(ip netns exec "$ns" unshare -m bash -c "
       mount --bind '$etc_dir' /etc/earnapp
       /usr/bin/earnapp showid 2>/dev/null | grep -o 'sdk-node-[a-z0-9]\+' || true
@@ -341,13 +333,11 @@ main() {
   done
   
   if (( used > 0 )); then
-    # Fetch the IDs once everything is running
     collect_ids "$used"
     
     echo "Processes are running. Logs are in $WORKDIR"
     echo "Press Ctrl+C to stop all instances."
     
-    # Keep the script alive so the 'trap cleanup' doesn't fire immediately
     wait
   else
     echo "No usable proxies after filtering."
