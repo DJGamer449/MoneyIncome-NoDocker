@@ -138,13 +138,7 @@ create_ns_with_veth() {
   local B C
   read -r B C <<<"$(calc_octets "$idx")"
 
-  
-# --- HARD RESET NAMESPACE ---
-ip netns del "$ns" 2>/dev/null || true
-ip link del "$veth_host" 2>/dev/null || true
-ip link del "$veth_ns" 2>/dev/null || true
-ip netns add "$ns" 2>/dev/null || true
-
+  ip netns add "$ns" 2>/dev/null || true
 
   if ! ip link show "$veth_host" >/dev/null 2>&1; then
     ip link add "$veth_host" type veth peer name "$veth_ns"
@@ -283,11 +277,7 @@ start_tun2socks_and_app() {
   read -r B C <<<"$(calc_octets "$idx")"
 
   # Create TUN inside namespace
-  
-# --- SAFE TUN RESET ---
-ip netns exec "$ns" ip link del tun0 2>/dev/null || true
-ip netns exec "$ns" ip tuntap add dev tun0 mode tun 2>/dev/null || true
-
+  ip netns exec "$ns" ip tuntap add dev tun0 mode tun
   ip netns exec "$ns" ip addr add "198.18.${B}.${C}/30" dev tun0
   ip netns exec "$ns" ip link set tun0 up
 
