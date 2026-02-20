@@ -72,7 +72,7 @@ run_packetstream() {
 }
 
 run_urnetwork() {
-  echo "Starting UpRock..."
+  echo "Starting urnetwork..."
   sudo BASE_NS=urns VETH_PREFIX=ur WORKDIR=/tmp/ur_multi \
     bash "$UR_SCRIPT" proxies.txt &
   PIDS+=($!)
@@ -83,7 +83,7 @@ menu() {
   echo "1) Run EarnApp"
   echo "2) Run Traff"
   echo "3) Run PacketStream"
-  echo "4) Run UpRock"
+  echo "4) Run urnetwork"
   echo "5) Install tun2socks"
   echo "6) Install EarnApp Binary"
   echo "7) Install Dependencies"
