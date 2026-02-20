@@ -7,6 +7,7 @@ chmod +x ./cli ./psclient ./provider
 BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 EARNAPP_SCRIPT="$BASE_DIR/direct_earnapp.sh"
 TRAFF_SCRIPT="$BASE_DIR/direct_traff.sh"
+UR_SCRIPT="$BASE_DIR/direct_urnetwork.sh"
 INSTALL_SCRIPT="$BASE_DIR/install_tun2socks.sh"
 
 PIDS=()
@@ -70,15 +71,23 @@ run_packetstream() {
   PIDS+=($!)
 }
 
+run_urnetwork() {
+  echo "Starting UpRock..."
+  sudo BASE_NS=urns VETH_PREFIX=ur WORKDIR=/tmp/ur_multi \
+    bash "$UR_SCRIPT" proxies.txt &
+  PIDS+=($!)
+}
+
 menu() {
   echo -e "\n====== GRAND NETWORK MANAGER ======"
   echo "1) Run EarnApp"
   echo "2) Run Traff"
   echo "3) Run PacketStream"
-  echo "4) Install tun2socks"
-  echo "5) Install EarnApp Binary"
-  echo "6) Install Dependencies"
-  echo "7) Run ALL"
+  echo "4) Run UpRock"
+  echo "5) Install tun2socks"
+  echo "6) Install EarnApp Binary"
+  echo "7) Install Dependencies"
+  echo "8) Run ALL"
   echo "0) Exit"
   echo "===================================="
 }
@@ -91,10 +100,11 @@ while true; do
     1) run_earnapp ;;
     2) run_traff ;;
     3) run_packetstream ;;
-    4) sudo bash "$INSTALL_SCRIPT" ;;
-    5) install_earnapp ;;
-    6) install_dependencies ;;
-    7) run_earnapp; sleep 2; run_traff; sleep 2; run_packetstream ;;
+    4) run_urnetwork ;;
+    5) sudo bash "$INSTALL_SCRIPT" ;;
+    6) install_earnapp ;;
+    7) install_dependencies ;;
+    8) run_earnapp; sleep 2; run_traff; sleep 2; run_packetstream; sleep 2; run_urnetwork ;;
     0) cleanup ;;
     *) echo "Invalid option." ;;
   esac
