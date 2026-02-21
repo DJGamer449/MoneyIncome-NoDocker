@@ -26,28 +26,55 @@ CASTAR_KEY=""
 # ===============================
 
 kernel_tune() {
-  echo "Applying high-performance kernel tuning..."
+  echo "Applying EXTREME high-scale kernel tuning (10k instance target)..."
 
-  # File limits
-  ulimit -n 1048576 || true
-  sysctl -w fs.file-max=2000000 >/dev/null
+  # ==============================
+  # FILE DESCRIPTORS
+  # ==============================
+  ulimit -n 2097152 || true
+  sysctl -w fs.file-max=10000000 >/dev/null
+  sysctl -w fs.nr_open=10000000 >/dev/null
 
-  # Networking
-  sysctl -w net.core.somaxconn=65535 >/dev/null
-  sysctl -w net.core.netdev_max_backlog=65536 >/dev/null
-  sysctl -w net.ipv4.ip_local_port_range="10240 65535" >/dev/null
+  # ==============================
+  # PORT CAPACITY (CRITICAL)
+  # ==============================
+  sysctl -w net.ipv4.ip_local_port_range="1000 65535" >/dev/null
   sysctl -w net.ipv4.tcp_tw_reuse=1 >/dev/null
-  sysctl -w net.ipv4.tcp_fin_timeout=15 >/dev/null
+  sysctl -w net.ipv4.tcp_fin_timeout=5 >/dev/null
+  sysctl -w net.ipv4.tcp_max_tw_buckets=5000000 >/dev/null
 
-  # Conntrack scaling
-  sysctl -w net.netfilter.nf_conntrack_max=262144 >/dev/null
-  sysctl -w net.netfilter.nf_conntrack_tcp_timeout_time_wait=30 >/dev/null
+  # ==============================
+  # CONNECTION TRACKING (HUGE)
+  # ==============================
+  sysctl -w net.netfilter.nf_conntrack_max=2097152 >/dev/null
+  sysctl -w net.netfilter.nf_conntrack_buckets=524288 >/dev/null
   sysctl -w net.netfilter.nf_conntrack_tcp_timeout_established=600 >/dev/null
+  sysctl -w net.netfilter.nf_conntrack_tcp_timeout_time_wait=15 >/dev/null
 
-  # Memory safety guard
-  sysctl -w vm.max_map_count=262144 >/dev/null
+  # ==============================
+  # NETWORK STACK DEPTH
+  # ==============================
+  sysctl -w net.core.somaxconn=65535 >/dev/null
+  sysctl -w net.core.netdev_max_backlog=262144 >/dev/null
+  sysctl -w net.core.rmem_max=67108864 >/dev/null
+  sysctl -w net.core.wmem_max=67108864 >/dev/null
+  sysctl -w net.ipv4.tcp_rmem="4096 87380 33554432" >/dev/null
+  sysctl -w net.ipv4.tcp_wmem="4096 65536 33554432" >/dev/null
 
-  echo "Kernel tuned successfully."
+  # ==============================
+  # VM / MAP LIMITS
+  # ==============================
+  sysctl -w vm.max_map_count=1048576 >/dev/null
+  sysctl -w vm.swappiness=10 >/dev/null
+
+  # ==============================
+  # ENABLE BBR (THROUGHPUT BOOST)
+  # ==============================
+  modprobe tcp_bbr 2>/dev/null || true
+  sysctl -w net.core.default_qdisc=fq >/dev/null
+  sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null
+
+  echo "EXTREME kernel tuning applied. Hardware is now the only limit."
 }
 
 
