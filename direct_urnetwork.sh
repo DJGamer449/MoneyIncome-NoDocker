@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ========= USER SETTINGS =========
-APP_CMD=( ./provider provide )
+APP_CMD=( ./app/provider provide )
 PROXY_FILE="${1:-proxies.txt}"
 
 # Toggle checks:
