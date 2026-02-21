@@ -12,7 +12,7 @@ for f in "$(dirname "$0")"/*.sh; do
   [ -f "$f" ] && sed -i 's/\r$//' "$f" 2>/dev/null || true
 done
 
-chmod +x ./app/cli ./app/psclient ./app/provider
+chmod +x ./app/cli ./app/psclient ./app/provider ./app/CastarSDK
 
 BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 EARNAPP_SCRIPT="$BASE_DIR/direct_earnapp.sh"
@@ -181,7 +181,7 @@ run_castar() {
   [[ -z "$CASTAR_KEY" ]] && { echo "Castar key not set."; return; }
   local RUNTIME="/tmp/castar_runtime.sh"
   cp "$TRAFF_SCRIPT" "$RUNTIME"
-  sed -i "s|APP_CMD=.*|APP_CMD=( /root/CastarSDK -key=\"$CASTAR_KEY\" )|g" "$RUNTIME"
+  sed -i "s|APP_CMD=.*|APP_CMD=( ./app/CastarSDK -key=\"$CASTAR_KEY\" )|g" "$RUNTIME"
   echo "Starting Castar..."
   sudo BASE_NS=castarns VETH_PREFIX=castar WORKDIR=/tmp/castar_multi \
     bash "$RUNTIME" proxies.txt &
