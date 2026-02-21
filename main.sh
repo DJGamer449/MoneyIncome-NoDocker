@@ -107,14 +107,14 @@ while true; do
   menu
   read -rp "Select option: " opt || cleanup
   case "$opt" in
-    1) run_earnapp ;;
-    2) run_traff ;;
-    3) run_packetstream ;;
-    4) run_urnetwork ;;
+    1) run_earnapp ; wait ;;
+    2) run_traff ; wait ;;
+    3) run_packetstream ; wait ;;
+    4) run_urnetwork ; wait ;;
     5) sudo bash "$INSTALL_SCRIPT" ;;
     6) install_earnapp ;;
     7) install_dependencies ;;
-    8) run_earnapp; sleep 2; run_traff; sleep 2; run_packetstream; sleep 2; run_urnetwork ;;
+    8) run_earnapp; sleep 2; run_traff; sleep 2; run_packetstream; sleep 2; run_urnetwork; echo "All services running. Press Ctrl+C to stop."; wait ;;
     0) cleanup ;;
     *) echo "Invalid option." ;;
   esac
