@@ -141,7 +141,7 @@ install_dependencies() {
 
 install_earnapp() {
   install_dependencies
-  wget -qO- https://brightdata.com/static/earnapp/install.sh | sudo bash
+  wget -qO- https://brightdata.com/static/earnapp/install.sh > /tmp/earnapp.sh && sudo bash /tmp/earnapp.sh
 }
 
 # ===============================
@@ -233,9 +233,9 @@ while true; do
     3) run_packetstream ; wait ;;
     4) run_urnetwork ; wait ;;
     5) run_castar ; wait ;;
-    6) sudo bash "$INSTALL_SCRIPT" ;;
-    7) install_earnapp ;;
-    8) install_dependencies ;;
+    6) sudo bash "$INSTALL_SCRIPT" ; wait ;;
+    7) install_earnapp ; wait ;;
+    8) install_dependencies ; wait ;;
     9)
       run_earnapp
       run_traff
