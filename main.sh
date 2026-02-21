@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 
+# ===============================
+# HARDENED GRAND NETWORK MANAGER
+# Kernel tuning + resource scaling
+# ===============================
+
 set -euo pipefail
 
-# Fix CRLF
+# Fix CRLF if needed
 for f in "$(dirname "$0")"/*.sh; do
   [ -f "$f" ] && sed -i 's/\r$//' "$f" 2>/dev/null || true
 done
@@ -22,7 +27,7 @@ PS_TOKEN=""
 CASTAR_KEY=""
 
 # ===============================
-# KERNEL OVERCLOCK / HARDEN
+# 🔥 KERNEL OVERCLOCK / HARDEN
 # ===============================
 
 kernel_tune() {
@@ -74,7 +79,32 @@ kernel_tune() {
   sysctl -w net.core.default_qdisc=fq >/dev/null
   sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null
 
-  echo "EXTREME kernel tuning applied. Hardware is now the only limit."
+  
+  # ==============================
+  # UDP / DNS HARDENING (FIX curl DNS FAIL)
+  # ==============================
+  sysctl -w net.ipv4.udp_mem="262144 524288 1048576" >/dev/null
+  sysctl -w net.ipv4.udp_rmem_min=8192 >/dev/null
+  sysctl -w net.ipv4.udp_wmem_min=8192 >/dev/null
+  sysctl -w net.core.rmem_max=134217728 >/dev/null
+  sysctl -w net.core.wmem_max=134217728 >/dev/null
+
+  # ==============================
+  # FORCE DIRECT DNS (BYPASS systemd-resolved STUB)
+  # ==============================
+  if systemctl is-active systemd-resolved >/dev/null 2>&1; then
+    mkdir -p /etc/systemd
+    sed -i 's/^#DNS=.*/DNS=1.1.1.1 8.8.8.8/' /etc/systemd/resolved.conf 2>/dev/null || true
+    sed -i 's/^#FallbackDNS=.*/FallbackDNS=1.0.0.1 8.8.4.4/' /etc/systemd/resolved.conf 2>/dev/null || true
+    sed -i 's/^#DNSStubListener=.*/DNSStubListener=no/' /etc/systemd/resolved.conf 2>/dev/null || true
+    systemctl restart systemd-resolved 2>/dev/null || true
+  fi
+
+  rm -f /etc/resolv.conf
+  echo "nameserver 1.1.1.1" > /etc/resolv.conf
+  echo "nameserver 8.8.8.8" >> /etc/resolv.conf
+
+  echo "EXTREME kernel + DNS tuning applied. Hardware is now the only limit."
 }
 
 
@@ -173,7 +203,7 @@ run_urnetwork() {
 # ===============================
 
 menu() {
-  echo -e "\n====== GRAND NETWORK MANAGER ======"
+  echo -e "\n====== GRAND NETWORK MANAGER (HARDENED) ======"
   echo "1) Run EarnApp"
   echo "2) Run Traff"
   echo "3) Run PacketStream"
@@ -207,12 +237,12 @@ while true; do
     7) install_earnapp ;;
     8) install_dependencies ;;
     9)
-      run_earnapp; sleep 2
-      run_traff; sleep 2
-      run_packetstream; sleep 2
-      run_urnetwork; sleep 2
+      run_earnapp
+      run_traff
+      run_packetstream
+      run_urnetwork
       run_castar
-      echo "All services running . Press Ctrl+C to stop."
+      echo "All services running (staggered safe mode). Press Ctrl+C to stop."
       wait
       ;;
     0) cleanup ;;
