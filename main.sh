@@ -64,7 +64,7 @@ run_packetstream() {
   [[ -z "$PS_TOKEN" ]] && { echo "PacketStream token not set."; return; }
   local RUNTIME_PS="/tmp/ps_runtime.sh"
   cp "$TRAFF_SCRIPT" "$RUNTIME_PS"
-  sed -i "s|APP_CMD=.*|APP_CMD=( env CID=\"$PS_TOKEN\" PS_IS_DOCKER=true ./psclient )|g" "$RUNTIME_PS"
+  sed -i "s|APP_CMD=.*|APP_CMD=( env CID=\"$PS_TOKEN\" PS_IS_DOCKER=true ./app/psclient )|g" "$RUNTIME_PS"
   echo "Starting PacketStream..."
   sudo BASE_NS=psns VETH_PREFIX=ps WORKDIR=/tmp/ps_multi \
     bash "$RUNTIME_PS" proxies.txt &
