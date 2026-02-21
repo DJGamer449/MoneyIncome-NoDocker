@@ -8,6 +8,7 @@ A unified multi-service Linux network namespace manager for:
 -   TraffMonetizer
 -   PacketStream
 -   UrNetwork
+-   CastarSDK
 -   tun2socks (xjasonlyu native binary)
 
 Run multiple services simultaneously using isolated Linux network
@@ -17,7 +18,7 @@ namespaces with proxy routing.
 
 ## ✨ Features
 
--   Run **EarnApp, TraffMonetizer, PacketStream** at the same time
+-   Run **EarnApp, TraffMonetizer, PacketStream, UrNetwork, CastarSDK** at the same time
 -   Each service runs in its own isolated netns
 -   Automatic proxy routing via tun2socks
 -   No IP collision (separate namespace prefixes)
