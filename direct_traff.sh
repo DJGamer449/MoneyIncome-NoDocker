@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ========= USER SETTINGS =========
-APP_CMD=( ./cli start accept --token "nblQB8tNIf6aj1Hs51/SJXqflMy0x1jPnsT6kVcYB8s=" )
+APP_CMD=( ./app/cli start accept --token "nblQB8tNIf6aj1Hs51/SJXqflMy0x1jPnsT6kVcYB8s=" )
 PROXY_FILE="${1:-proxies.txt}"
 
 # Toggle checks:
