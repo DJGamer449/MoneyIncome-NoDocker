@@ -14,6 +14,7 @@ PIDS=()
 EXITING=0
 TRAFF_TOKEN=""
 PS_TOKEN=""
+CASTAR_KEY="" #
 
 cleanup() {
   [[ "$EXITING" == "1" ]] && return
@@ -30,6 +31,7 @@ ask_tokens() {
   echo "========== TOKEN SETUP =========="
   read -rp "Enter Traff token (or leave blank): " TRAFF_TOKEN
   read -rp "Enter PacketStream CID token (or leave blank): " PS_TOKEN
+  read -rp "Enter Castar Key (or leave blank): " CASTAR_KEY #
   echo "================================="
 }
 
@@ -71,6 +73,19 @@ run_packetstream() {
   PIDS+=($!)
 }
 
+# --- New Castar Function ---
+run_castar() {
+  [[ -z "$CASTAR_KEY" ]] && { echo "Castar key not set."; return; }
+  local RUNTIME_CASTAR="/tmp/castar_runtime.sh"
+  cp "$TRAFF_SCRIPT" "$RUNTIME_CASTAR"
+  # Replaces the APP_CMD in direct_traff.sh with the Castar binary and your key
+  sed -i "s|APP_CMD=.*|APP_CMD=( /root/CastarSDK -key=\"$CASTAR_KEY\" )|g" "$RUNTIME_CASTAR"
+  echo "Starting Castar..."
+  sudo BASE_NS=castarns VETH_PREFIX=castar WORKDIR=/tmp/castar_multi \
+    bash "$RUNTIME_CASTAR" proxies.txt &
+  PIDS+=($!)
+}
+
 run_urnetwork() {
   echo "Starting UrNetwork..."
 
@@ -94,10 +109,11 @@ menu() {
   echo "2) Run Traff"
   echo "3) Run PacketStream"
   echo "4) Run UrNetwork"
-  echo "5) Install tun2socks"
-  echo "6) Install EarnApp Binary"
-  echo "7) Install Dependencies"
-  echo "8) Run ALL"
+  echo "5) Run Castar"  # Added
+  echo "6) Install tun2socks"
+  echo "7) Install EarnApp Binary"
+  echo "8) Install Dependencies"
+  echo "9) Run ALL"
   echo "0) Exit"
   echo "===================================="
 }
@@ -111,10 +127,11 @@ while true; do
     2) run_traff ; wait ;;
     3) run_packetstream ; wait ;;
     4) run_urnetwork ; wait ;;
-    5) sudo bash "$INSTALL_SCRIPT" ;;
-    6) install_earnapp ;;
-    7) install_dependencies ;;
-    8) run_earnapp; sleep 2; run_traff; sleep 2; run_packetstream; sleep 2; run_urnetwork; echo "All services running. Press Ctrl+C to stop."; wait ;;
+    5) run_castar ; wait ;; #
+    6) sudo bash "$INSTALL_SCRIPT" ;;
+    7) install_earnapp ;;
+    8) install_dependencies ;;
+    9) run_earnapp; sleep 2; run_traff; sleep 2; run_packetstream; sleep 2; run_urnetwork; sleep 2; run_castar; echo "All services running. Press Ctrl+C to stop."; wait ;;
     0) cleanup ;;
     *) echo "Invalid option." ;;
   esac
