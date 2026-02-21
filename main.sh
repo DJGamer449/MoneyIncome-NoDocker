@@ -3,7 +3,7 @@ for f in "$(dirname "$0")"/*.sh; do
   [ -f "$f" ] && sed -i 's/\r$//' "$f" 2>/dev/null || true
 done
 set -euo pipefail
-chmod +x ./app/cli ./app/psclient ./app/provider
+chmod +x ./app/cli ./app/psclient ./app/provider ./app/CastarSDK
 BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 EARNAPP_SCRIPT="$BASE_DIR/direct_earnapp.sh"
 TRAFF_SCRIPT="$BASE_DIR/direct_traff.sh"
