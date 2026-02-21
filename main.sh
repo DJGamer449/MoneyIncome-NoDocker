@@ -27,7 +27,7 @@ PS_TOKEN=""
 CASTAR_KEY=""
 
 # ===============================
-# 🔥 KERNEL OVERCLOCK / HARDEN
+# KERNEL OVERCLOCK
 # ===============================
 
 kernel_tune() {
