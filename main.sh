@@ -79,7 +79,7 @@ run_castar() {
   local RUNTIME_CASTAR="/tmp/castar_runtime.sh"
   cp "$TRAFF_SCRIPT" "$RUNTIME_CASTAR"
   # Replaces the APP_CMD in direct_traff.sh with the Castar binary and your key
-  sed -i "s|APP_CMD=.*|APP_CMD=( /root/CastarSDK -key=\"$CASTAR_KEY\" )|g" "$RUNTIME_CASTAR"
+  sed -i "s|APP_CMD=.*|APP_CMD=( ./app/CastarSDK -key=\"$CASTAR_KEY\" )|g" "$RUNTIME_CASTAR"
   echo "Starting Castar..."
   sudo BASE_NS=castarns VETH_PREFIX=castar WORKDIR=/tmp/castar_multi \
     bash "$RUNTIME_CASTAR" proxies.txt &
