@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ========= USER SETTINGS =========
-APP_CMD=( ./antgain )
+APP_CMD=( ./app/antgain )
 PROXY_FILE="${1:-proxies.txt}"
 
 # Ask for AntGain API key
@@ -289,3 +289,4 @@ main() {
 }
 
 main "$@"
+
