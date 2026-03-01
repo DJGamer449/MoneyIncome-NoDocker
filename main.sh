@@ -36,6 +36,7 @@ kernel_tune() {
   # ==============================
   # FILE DESCRIPTORS
   # ==============================
+  sudo modprobe nf_conntrack
   ulimit -n 2097152 || true
   sysctl -w fs.file-max=10000000 >/dev/null
   sysctl -w fs.nr_open=10000000 >/dev/null
