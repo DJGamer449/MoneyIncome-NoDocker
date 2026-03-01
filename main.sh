@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
 
-# ===============================
-# HARDENED GRAND NETWORK MANAGER
-# Kernel tuning + resource scaling
-# ===============================
-
 set -euo pipefail
 
 # Fix CRLF if needed
@@ -12,12 +7,13 @@ for f in "$(dirname "$0")"/*.sh; do
   [ -f "$f" ] && sed -i 's/\r$//' "$f" 2>/dev/null || true
 done
 
-chmod +x ./app/cli ./app/psclient ./app/provider ./app/CastarSDK
+chmod +x ./app/cli ./app/psclient ./app/provider ./app/CastarSDK ./antgain 2>/dev/null || true
 
 BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 EARNAPP_SCRIPT="$BASE_DIR/direct_earnapp.sh"
 TRAFF_SCRIPT="$BASE_DIR/direct_traff.sh"
 UR_SCRIPT="$BASE_DIR/direct_urnetwork.sh"
+ANTGAIN_SCRIPT="$BASE_DIR/direct_antgain.sh"
 INSTALL_SCRIPT="$BASE_DIR/install_tun2socks.sh"
 
 PIDS=()
@@ -25,6 +21,7 @@ EXITING=0
 TRAFF_TOKEN=""
 PS_TOKEN=""
 CASTAR_KEY=""
+ANTGAIN_API_KEY=""
 
 # ===============================
 # KERNEL OVERCLOCK
@@ -33,32 +30,19 @@ CASTAR_KEY=""
 kernel_tune() {
   echo "Applying EXTREME high-scale kernel tuning (10k instance target)..."
 
-  # ==============================
-  # FILE DESCRIPTORS
-  # ==============================
   ulimit -n 2097152 || true
   sysctl -w fs.file-max=10000000 >/dev/null
   sysctl -w fs.nr_open=10000000 >/dev/null
 
-  # ==============================
-  # PORT CAPACITY (CRITICAL)
-  # ==============================
-  #sysctl -w net.ipv4.ip_local_port_range="1000 65535" >/dev/null
   sysctl -w net.ipv4.tcp_tw_reuse=1 >/dev/null
   sysctl -w net.ipv4.tcp_fin_timeout=5 >/dev/null
   sysctl -w net.ipv4.tcp_max_tw_buckets=5000000 >/dev/null
 
-  # ==============================
-  # CONNECTION TRACKING (HUGE)
-  # ==============================
   sysctl -w net.netfilter.nf_conntrack_max=2097152 >/dev/null
   sysctl -w net.netfilter.nf_conntrack_buckets=524288 >/dev/null
   sysctl -w net.netfilter.nf_conntrack_tcp_timeout_established=600 >/dev/null
   sysctl -w net.netfilter.nf_conntrack_tcp_timeout_time_wait=15 >/dev/null
 
-  # ==============================
-  # NETWORK STACK DEPTH
-  # ==============================
   sysctl -w net.core.somaxconn=65535 >/dev/null
   sysctl -w net.core.netdev_max_backlog=262144 >/dev/null
   sysctl -w net.core.rmem_max=67108864 >/dev/null
@@ -66,32 +50,19 @@ kernel_tune() {
   sysctl -w net.ipv4.tcp_rmem="4096 87380 33554432" >/dev/null
   sysctl -w net.ipv4.tcp_wmem="4096 65536 33554432" >/dev/null
 
-  # ==============================
-  # VM / MAP LIMITS
-  # ==============================
   sysctl -w vm.max_map_count=1048576 >/dev/null
   sysctl -w vm.swappiness=10 >/dev/null
 
-  # ==============================
-  # ENABLE BBR (THROUGHPUT BOOST)
-  # ==============================
   modprobe tcp_bbr 2>/dev/null || true
   sysctl -w net.core.default_qdisc=fq >/dev/null
   sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null
 
-  
-  # ==============================
-  # UDP / DNS HARDENING (FIX curl DNS FAIL)
-  # ==============================
   sysctl -w net.ipv4.udp_mem="262144 524288 1048576" >/dev/null
   sysctl -w net.ipv4.udp_rmem_min=8192 >/dev/null
   sysctl -w net.ipv4.udp_wmem_min=8192 >/dev/null
   sysctl -w net.core.rmem_max=134217728 >/dev/null
   sysctl -w net.core.wmem_max=134217728 >/dev/null
 
-  # ==============================
-  # FORCE DIRECT DNS (BYPASS systemd-resolved STUB)
-  # ==============================
   if systemctl is-active systemd-resolved >/dev/null 2>&1; then
     mkdir -p /etc/systemd
     sed -i 's/^#DNS=.*/DNS=1.1.1.1 8.8.8.8/' /etc/systemd/resolved.conf 2>/dev/null || true
@@ -104,9 +75,8 @@ kernel_tune() {
   echo "nameserver 1.1.1.1" > /etc/resolv.conf
   echo "nameserver 8.8.8.8" >> /etc/resolv.conf
 
-  echo "EXTREME kernel + DNS tuning applied. Hardware is now the only limit."
+  echo "Kernel tuning applied."
 }
-
 
 # ===============================
 # CLEANUP
@@ -132,6 +102,7 @@ ask_tokens() {
   read -rp "Enter Traff token (or leave blank): " TRAFF_TOKEN
   read -rp "Enter PacketStream CID token (or leave blank): " PS_TOKEN
   read -rp "Enter Castar Key (or leave blank): " CASTAR_KEY
+  read -rp "Enter AntGain API Key (or leave blank): " ANTGAIN_API_KEY
   echo "================================="
 }
 
@@ -160,6 +131,7 @@ run_traff() {
   local RUNTIME="/tmp/traff_runtime.sh"
   cp "$TRAFF_SCRIPT" "$RUNTIME"
   sed -i "s|--token \".*\"|--token \"$TRAFF_TOKEN\"|g" "$RUNTIME"
+
   echo "Starting Traff..."
   sudo BASE_NS=traffns VETH_PREFIX=traff WORKDIR=/tmp/traff_multi \
     bash "$RUNTIME" proxies.txt &
@@ -171,6 +143,7 @@ run_packetstream() {
   local RUNTIME="/tmp/ps_runtime.sh"
   cp "$TRAFF_SCRIPT" "$RUNTIME"
   sed -i "s|APP_CMD=.*|APP_CMD=( env CID=\"$PS_TOKEN\" PS_IS_DOCKER=true ./app/psclient )|g" "$RUNTIME"
+
   echo "Starting PacketStream..."
   sudo BASE_NS=psns VETH_PREFIX=ps WORKDIR=/tmp/ps_multi \
     bash "$RUNTIME" proxies.txt &
@@ -182,6 +155,7 @@ run_castar() {
   local RUNTIME="/tmp/castar_runtime.sh"
   cp "$TRAFF_SCRIPT" "$RUNTIME"
   sed -i "s|APP_CMD=.*|APP_CMD=( ./app/CastarSDK -key=\"$CASTAR_KEY\" )|g" "$RUNTIME"
+
   echo "Starting Castar..."
   sudo BASE_NS=castarns VETH_PREFIX=castar WORKDIR=/tmp/castar_multi \
     bash "$RUNTIME" proxies.txt &
@@ -198,23 +172,37 @@ run_urnetwork() {
   PIDS+=($!)
 }
 
+run_antgain() {
+  [[ -z "$ANTGAIN_API_KEY" ]] && { echo "AntGain API key not set."; return; }
+
+  local RUNTIME="/tmp/antgain_runtime.sh"
+  cp "$ANTGAIN_SCRIPT" "$RUNTIME"
+  sed -i "1i export ANTGAIN_API_KEY=\"$ANTGAIN_API_KEY\"" "$RUNTIME"
+
+  echo "Starting AntGain..."
+  sudo BASE_NS=antns VETH_PREFIX=ant WORKDIR=/tmp/antgain_multi \
+    bash "$RUNTIME" proxies.txt &
+  PIDS+=($!)
+}
+
 # ===============================
 # MENU
 # ===============================
 
 menu() {
-  echo -e "\n====== GRAND NETWORK MANAGER (HARDENED) ======"
+  echo -e "\n====== GRAND NETWORK MANAGER ======"
   echo "1) Run EarnApp"
   echo "2) Run Traff"
   echo "3) Run PacketStream"
   echo "4) Run UrNetwork"
   echo "5) Run Castar"
-  echo "6) Install tun2socks"
-  echo "7) Install EarnApp Binary"
-  echo "8) Install Dependencies"
-  echo "9) Run ALL (Safe Mode)"
+  echo "6) Run AntGain"
+  echo "7) Install tun2socks"
+  echo "8) Install EarnApp Binary"
+  echo "9) Install Dependencies"
+  echo "10) Run ALL (Safe Mode)"
   echo "0) Exit"
-  echo "==============================================="
+  echo "==================================="
 }
 
 # ===============================
@@ -233,16 +221,18 @@ while true; do
     3) run_packetstream ; wait ;;
     4) run_urnetwork ; wait ;;
     5) run_castar ; wait ;;
-    6) sudo bash "$INSTALL_SCRIPT" ; wait ;;
-    7) install_earnapp ; wait ;;
-    8) install_dependencies ; wait ;;
-    9)
+    6) run_antgain ; wait ;;
+    7) sudo bash "$INSTALL_SCRIPT" ; wait ;;
+    8) install_earnapp ; wait ;;
+    9) install_dependencies ; wait ;;
+    10)
       run_earnapp
       run_traff
       run_packetstream
       run_urnetwork
       run_castar
-      echo "All services running (staggered safe mode). Press Ctrl+C to stop."
+      run_antgain
+      echo "All services running. Press Ctrl+C to stop."
       wait
       ;;
     0) cleanup ;;
