@@ -7,7 +7,7 @@ for f in "$(dirname "$0")"/*.sh; do
   [ -f "$f" ] && sed -i 's/\r$//' "$f" 2>/dev/null || true
 done
 
-chmod +x ./app/cli ./app/psclient ./app/provider ./app/CastarSDK ./antgain 2>/dev/null || true
+chmod +x ./app/cli ./app/psclient ./app/provider ./app/CastarSDK ./app/antgain 2>/dev/null || true
 
 BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 EARNAPP_SCRIPT="$BASE_DIR/direct_earnapp.sh"
