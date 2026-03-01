@@ -12,13 +12,14 @@ for f in "$(dirname "$0")"/*.sh; do
   [ -f "$f" ] && sed -i 's/\r$//' "$f" 2>/dev/null || true
 done
 
-# Added antgain to chmod
+# Added antgain to permissions
 chmod +x ./app/cli ./app/psclient ./app/provider ./app/CastarSDK ./app/antgain
 
 BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 EARNAPP_SCRIPT="$BASE_DIR/direct_earnapp.sh"
 TRAFF_SCRIPT="$BASE_DIR/direct_traff.sh"
 UR_SCRIPT="$BASE_DIR/direct_urnetwork.sh"
+ANTGAIN_SCRIPT="$BASE_DIR/direct_antgain.sh" # Link to the new worker
 INSTALL_SCRIPT="$BASE_DIR/install_tun2socks.sh"
 
 PIDS=()
@@ -26,7 +27,7 @@ EXITING=0
 TRAFF_TOKEN=""
 PS_TOKEN=""
 CASTAR_KEY=""
-ANTGAIN_API_KEY="" # New AntGain variable
+ANTGAIN_API_KEY="" # Variable for AntGain
 
 # ===============================
 # KERNEL OVERCLOCK
@@ -55,9 +56,6 @@ kernel_tune() {
   modprobe tcp_bbr 2>/dev/null || true
   sysctl -w net.core.default_qdisc=fq >/dev/null
   sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null
-  sysctl -w net.ipv4.udp_mem="262144 524288 1048576" >/dev/null
-  sysctl -w net.ipv4.udp_rmem_min=8192 >/dev/null
-  sysctl -w net.ipv4.udp_wmem_min=8192 >/dev/null
 
   if systemctl is-active systemd-resolved >/dev/null 2>&1; then
     mkdir -p /etc/systemd
@@ -73,10 +71,6 @@ kernel_tune() {
   echo "EXTREME kernel + DNS tuning applied."
 }
 
-# ===============================
-# CLEANUP
-# ===============================
-
 cleanup() {
   [[ "$EXITING" == "1" ]] && return
   EXITING=1
@@ -88,30 +82,21 @@ cleanup() {
 }
 trap cleanup INT
 
-# ===============================
-# TOKEN INPUT
-# ===============================
-
 ask_tokens() {
   echo "========== TOKEN SETUP =========="
   read -rp "Enter Traff token (or leave blank): " TRAFF_TOKEN
   read -rp "Enter PacketStream CID token (or leave blank): " PS_TOKEN
   read -rp "Enter Castar Key (or leave blank): " CASTAR_KEY
-  read -rp "Enter AntGain API Key (or leave blank): " ANTGAIN_API_KEY # Added prompt
+  read -rp "Enter AntGain API Key (or leave blank): " ANTGAIN_API_KEY # New prompt
   echo "================================="
 }
 
-install_dependencies() {
-  sudo apt update && sudo apt install -y curl wget unzip iproute2 iptables uuid-runtime jq net-tools
-}
-
-# ===============================
-# SERVICE RUNNERS
-# ===============================
+# --- Service Runners ---
 
 run_earnapp() {
   echo "Starting EarnApp..."
-  sudo BASE_NS=earnns VETH_PREFIX=earn WORKDIR=/tmp/earnapp_multi bash "$EARNAPP_SCRIPT" proxies.txt &
+  sudo BASE_NS=earnns VETH_PREFIX=earn WORKDIR=/tmp/earnapp_multi \
+    bash "$EARNAPP_SCRIPT" proxies.txt &
   PIDS+=($!)
 }
 
@@ -145,15 +130,10 @@ run_castar() {
   PIDS+=($!)
 }
 
-# --- New AntGain Function ---
-run_antgain() {
-  [[ -z "$ANTGAIN_API_KEY" ]] && { echo "AntGain API Key not set."; return; }
-  local RUNTIME="/tmp/antgain_runtime.sh"
-  cp "$TRAFF_SCRIPT" "$RUNTIME"
-  # Swaps APP_CMD to run antgain with the API key environment variable
-  sed -i "s|APP_CMD=.*|APP_CMD=( env ANTGAIN_API_KEY=\"$ANTGAIN_API_KEY\" ./app/antgain )|g" "$RUNTIME"
+run_antgain() { # New AntGain runner
+  [[ -z "$ANTGAIN_API_KEY" ]] && { echo "AntGain API key not set."; return; }
   echo "Starting AntGain..."
-  sudo BASE_NS=antns VETH_PREFIX=ant WORKDIR=/tmp/antgain_multi bash "$RUNTIME" proxies.txt &
+  sudo ANTGAIN_API_KEY="$ANTGAIN_API_KEY" bash "$ANTGAIN_SCRIPT" proxies.txt &
   PIDS+=($!)
 }
 
@@ -166,10 +146,6 @@ run_urnetwork() {
   PIDS+=($!)
 }
 
-# ===============================
-# MENU
-# ===============================
-
 menu() {
   echo -e "\n====== GRAND NETWORK MANAGER (HARDENED) ======"
   echo "1) Run EarnApp"
@@ -177,7 +153,7 @@ menu() {
   echo "3) Run PacketStream"
   echo "4) Run UrNetwork"
   echo "5) Run Castar"
-  echo "6) Run AntGain"  # Added option
+  echo "6) Run AntGain" # New menu option
   echo "7) Install tun2socks"
   echo "8) Install EarnApp Binary"
   echo "9) Install Dependencies"
@@ -185,10 +161,6 @@ menu() {
   echo "0) Exit"
   echo "==============================================="
 }
-
-# ===============================
-# STARTUP
-# ===============================
 
 kernel_tune
 ask_tokens
@@ -202,7 +174,7 @@ while true; do
     3) run_packetstream ; wait ;;
     4) run_urnetwork ; wait ;;
     5) run_castar ; wait ;;
-    6) run_antgain ; wait ;; # Added case
+    6) run_antgain ; wait ;; # Handle option 6
     7) sudo bash "$INSTALL_SCRIPT" ; wait ;;
     8) install_earnapp ; wait ;;
     9) install_dependencies ; wait ;;
@@ -212,7 +184,7 @@ while true; do
       run_packetstream
       run_urnetwork
       run_castar
-      run_antgain # Added to ALL
+      run_antgain # Included in ALL
       echo "All services running. Press Ctrl+C to stop."
       wait
       ;;
