@@ -5,20 +5,19 @@ set -euo pipefail
 APP_CMD=( ./antgain )
 PROXY_FILE="${1:-proxies.txt}"
 
-# Ask API key if not provided
+# Ask for AntGain API key
 if [[ -z "${ANTGAIN_API_KEY:-}" ]]; then
   read -rp "Enter ANTGAIN API KEY: " ANTGAIN_API_KEY
 fi
 
 # Toggle checks:
-CHECK_WORKING="${CHECK_WORKING:-1}"     # 1=check proxy works before use, 0=skip
-CHECK_SPEED="${CHECK_SPEED:-0}"         # 1=measure latency and filter, 0=skip
-MAX_LAT_MS="${MAX_LAT_MS:-1500}"        # if CHECK_SPEED=1, reject slower than this (1500ms recommended)
+CHECK_WORKING="${CHECK_WORKING:-1}"
+CHECK_SPEED="${CHECK_SPEED:-0}"
+MAX_LAT_MS="${MAX_LAT_MS:-1500}"
 
 CONNECT_TIMEOUT="${CONNECT_TIMEOUT:-5}"
 TOTAL_TIMEOUT="${TOTAL_TIMEOUT:-12}"
 
-# DNS
 FORCE_NS_DNS="${FORCE_NS_DNS:-1}"
 NS_DNS_LIST="${NS_DNS_LIST:-1.1.1.1 8.8.8.8}"
 
@@ -74,8 +73,8 @@ parse_proxy() {
 check_proxy() {
   local proxy="$1"
   local start end ms
-  local p="$proxy"
 
+  local p="$proxy"
   if [[ "$p" == socks5://* ]]; then
     p="socks5h://${p#socks5://}"
   fi
@@ -247,7 +246,7 @@ start_tun2socks_and_app() {
   local inst_dir="$WORKDIR/inst_${idx}"
   mkdir -p "$inst_dir"
 
-  echo "[$idx] Starting antgain via proxy=$proxy (netns=$ns)"
+  echo "[$idx] Starting AntGain via proxy=$proxy (netns=$ns)"
   ip netns exec "$ns" bash -c "cd '$(pwd)'; export HOME='$inst_dir'; export ANTGAIN_API_KEY='$ANTGAIN_API_KEY'; ${APP_CMD[*]}" \
     >"$WORKDIR/app_${idx}.log" 2>&1 &
 
@@ -286,7 +285,6 @@ main() {
     start_tun2socks_and_app "$used" "$p"
   done
 
-  echo "Started $used instances"
   wait
 }
 
