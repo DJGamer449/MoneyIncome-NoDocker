@@ -36,6 +36,7 @@ kernel_tune() {
   # ==============================
   # FILE DESCRIPTORS
   # ==============================
+  sudo modprobe nf_conntrack_ipv4
   sudo modprobe nf_conntrack
   ulimit -n 2097152 || true
   sysctl -w fs.file-max=10000000 >/dev/null
