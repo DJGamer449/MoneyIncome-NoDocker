@@ -31,7 +31,7 @@ FWMARK="${FWMARK:-0x22b}"
 # - TUN_TABLE gets default via tun0
 TUN_TABLE="${TUN_TABLE:-100}"
 BYPASS_UDP53="${BYPASS_UDP53:-1}"     # 1=send UDP/53 (DNS) direct (recommended for HTTP proxies)
-BYPASS_ALL_UDP="${BYPASS_ALL_UDP:-0}" # 1=send ALL UDP direct (leaks UDP outside proxy)
+BYPASS_ALL_UDP="${BYPASS_ALL_UDP:-1}" # 1=send ALL UDP direct (leaks UDP outside proxy)
 
 
 require_root() {
