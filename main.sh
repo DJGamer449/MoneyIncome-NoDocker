@@ -19,6 +19,7 @@ EARNAPP_SCRIPT="$BASE_DIR/direct_earnapp.sh"
 TRAFF_SCRIPT="$BASE_DIR/direct_traff.sh"
 UR_SCRIPT="$BASE_DIR/direct_urnetwork.sh"
 INSTALL_SCRIPT="$BASE_DIR/install_tun2socks.sh"
+WIPTER_SCRIPT="$BASE_DIR/direct_wipter.sh"
 
 PIDS=()
 EXITING=0
@@ -33,6 +34,7 @@ declare -A NS_INDEX=(
   [psns]=3
   [castarns]=4
   [urns]=5
+  [wipterns]=6
 )
 
 # store created namespaces for cleanup
@@ -302,6 +304,22 @@ run_urnetwork() {
   PIDS+=($!)
 }
 
+# -------------------------------
+# Wipter runner
+# -------------------------------
+run_wipter() {
+  if [[ ! -x "$WIPTER_SCRIPT" ]]; then
+    echo "direct_wipter.sh not found or not executable at $WIPTER_SCRIPT"
+    echo "Place direct_wipter.sh in $BASE_DIR and chmod +x it."
+    return
+  fi
+  create_netns_with_veth "wipterns" "wipter" "${NS_INDEX[wipterns]}"
+  echo "Starting Wipter..."
+  sudo BASE_NS=wipterns VETH_PREFIX=wipter WORKDIR=/tmp/wipter_multi \
+    bash "$WIPTER_SCRIPT" proxies.txt &
+  PIDS+=($!)
+}
+
 # ===============================
 # MENU
 # ===============================
@@ -317,6 +335,7 @@ menu() {
   echo "8) Install Dependencies"
   echo "9) Run ALL (Safe Mode)"
   echo "A) Clone & Run custom repo"
+  echo "W) Run Wipter"
   echo "0) Exit"
   echo "==============================================="
 }
@@ -345,6 +364,7 @@ while true; do
       run_packetstream
       run_urnetwork
       run_castar
+      run_wipter
       echo "All services running (staggered safe mode). Press Ctrl+C to stop."
       wait
       ;;
@@ -354,6 +374,7 @@ while true; do
       read -rp "Run command (relative to repo root, e.g. ./start.sh): " runcmd
       clone_and_run "$repo" "$aname" "$runcmd"
       ;;
+    W|w) run_wipter ; wait ;;
     0) cleanup ;;
     *) echo "Invalid option." ;;
   esac
