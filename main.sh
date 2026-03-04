@@ -26,6 +26,8 @@ EXITING=0
 TRAFF_TOKEN=""
 PS_TOKEN=""
 CASTAR_KEY=""
+WIPTER_EMAIL=""
+WIPTER_PASSWORD=""
 
 # maps ns name -> numeric index used for subnet allocation
 declare -A NS_INDEX=(
@@ -190,13 +192,18 @@ cleanup() {
 trap cleanup INT TERM
 
 # ===============================
-# Token Input (unchanged)
+# Token Input (updated: includes Wipter creds)
 # ===============================
 ask_tokens() {
   echo "========== TOKEN SETUP =========="
   read -rp "Enter Traff token (or leave blank): " TRAFF_TOKEN
   read -rp "Enter PacketStream CID token (or leave blank): " PS_TOKEN
   read -rp "Enter Castar Key (or leave blank): " CASTAR_KEY
+
+  echo "------ Wipter Credentials ------"
+  read -rp "Enter Wipter Email (or leave blank): " WIPTER_EMAIL
+  read -rsp "Enter Wipter Password (hidden, leave blank to skip): " WIPTER_PASSWORD
+  echo
   echo "================================="
 }
 
@@ -305,7 +312,7 @@ run_urnetwork() {
 }
 
 # -------------------------------
-# Wipter runner
+# Wipter runner (uses credentials from startup)
 # -------------------------------
 run_wipter() {
   if [[ ! -x "$WIPTER_SCRIPT" ]]; then
@@ -313,10 +320,20 @@ run_wipter() {
     echo "Place direct_wipter.sh in $BASE_DIR and chmod +x it."
     return
   fi
+
+  if [[ -z "${WIPTER_EMAIL:-}" || -z "${WIPTER_PASSWORD:-}" ]]; then
+    echo "Wipter credentials not set. Please restart and provide them, or set WIPTER_EMAIL/WIPTER_PASSWORD in environment."
+    return
+  fi
+
   create_netns_with_veth "wipterns" "wipter" "${NS_INDEX[wipterns]}"
   echo "Starting Wipter..."
-  sudo BASE_NS=wipterns VETH_PREFIX=wipter WORKDIR=/tmp/wipter_multi \
-    bash "$WIPTER_SCRIPT" proxies.txt &
+  sudo BASE_NS=wipterns \
+       VETH_PREFIX=wipter \
+       WORKDIR=/tmp/wipter_multi \
+       WIPTER_EMAIL="$WIPTER_EMAIL" \
+       WIPTER_PASSWORD="$WIPTER_PASSWORD" \
+       bash "$WIPTER_SCRIPT" proxies.txt &
   PIDS+=($!)
 }
 
