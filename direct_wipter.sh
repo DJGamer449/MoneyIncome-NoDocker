@@ -22,7 +22,7 @@ NS_DNS_LIST="${NS_DNS_LIST:-1.1.1.1 8.8.8.8}"
 BASE_NS="${BASE_NS:-wipterns}"
 VETH_PREFIX="${VETH_PREFIX:-wipter}"
 WORKDIR="${WORKDIR:-/tmp/wipter_clones}"
-WIPTER_DIR="${WIPTER_DIR:-/opt/wipter}"   # Put your wipter.sh and wipter-app here (or adjust)
+WIPTER_DIR="${WIPTER_DIR:./app/wipter/}"   # Put your wipter.sh and wipter-app here (or adjust)
 mkdir -p "$WORKDIR"
 
 # tun/proxy settings
@@ -292,3 +292,4 @@ main() {
 
 trap cleanup EXIT
 main "$@"
+
