@@ -2,11 +2,11 @@
 set -euo pipefail
 
 # direct_wipter.sh
-# Run multiple Wipter instances (one per proxy) in isolated network namespaces with tun2socks
+# Run multiple Wipter instances (one per proxy) in isolated network namespaces with hev-socks5-tunnel
 # Usage: sudo ./direct_wipter.sh proxies.txt
 #
 # Expects:
-# - tun2socks in PATH
+# - hev-socks5-tunnel in PATH
 # - You set WIPTER_EMAIL and WIPTER_PASSWORD in environment (or modify to read per-instance creds)
 # - A WIPTER_DIR containing wipter.sh and wipter-app (default /opt/wipter). You can place the supplied wipter.sh there.
 # - Behavior mirrors direct_earnapp.sh (policy routing + dns bypass). See that script for reference.
@@ -34,7 +34,7 @@ require_root() {
     echo "Run as root. Example: sudo $0 $PROXY_FILE"
     exit 1
   fi
-  command -v tun2socks >/dev/null 2>&1 || { echo "tun2socks not found in PATH"; exit 1; }
+  command -v hev-socks5-tunnel >/dev/null 2>&1 || { echo "hev-socks5-tunnel not found in PATH"; exit 1; }
 }
 
 # simple proxy checker (using curl through proxy)
@@ -169,8 +169,8 @@ bypass_dns_via_veth() {
   fi
 }
 
-# start a single instance: create tun, start tun2socks, then start wipter inside namespace
-start_tun2socks_and_wipter() {
+# start a single instance: create tun, start hev-socks5-tunnel, then start wipter inside namespace
+start_hev_socks5_tunnel_and_wipter() {
   local idx="$1"
   local proxy="$2"
 
@@ -183,21 +183,51 @@ start_tun2socks_and_wipter() {
   local B C
   read -r B C <<<"$(calc_octets "$idx")"
 
-  # create tun0 inside ns and give it an IP (isolated)
-  ip netns exec "$ns" ip tuntap add dev tun0 mode tun
-  ip netns exec "$ns" ip addr add "198.18.${B}.${C}/30" dev tun0
-  ip netns exec "$ns" ip link set tun0 up
-
   # make sure proxy IP is reachable via veth gateway
   pin_proxy_route_in_ns "$ns" "$idx" "$host"
 
-  # launch tun2socks inside the namespace, proxied to the proxy
-  local t_pidfile="$WORKDIR/tun2socks_${idx}.pid"
-  local t_logfile="$WORKDIR/tun2socks_${idx}.log"
+  # launch hev-socks5-tunnel inside the namespace
+  local t_pidfile="$WORKDIR/hev-socks5-tunnel_${idx}.pid"
+  local t_logfile="$WORKDIR/hev-socks5-tunnel_${idx}.log"
+  local t_cfgfile="$WORKDIR/hev-socks5-tunnel_${idx}.yml"
+  local fwmark_dec=$((FWMARK))
+  local tun_ip="198.18.${B}.${C}"
+
+  if [[ "$proto" == "socks5h" ]]; then
+    proto="socks5"
+  fi
+  if [[ "$proto" != "socks5" ]]; then
+    echo "[$idx] Unsupported proxy protocol for hev-socks5-tunnel: $proto"
+    return 1
+  fi
+
+  cat >"$t_cfgfile" <<EOF
+
+tunnel:
+  name: tun0
+  mtu: 8500
+  ipv4: $tun_ip
+socks5:
+  address: $host
+  port: $port
+  udp: 'udp'
+  username: '$user'
+  password: '$pass'
+  mark: $fwmark_dec
+misc:
+  log-file: stderr
+  log-level: info
+EOF
+
   ip netns exec "$ns" bash -lc "
-    nohup tun2socks -device tun0 -proxy '$proxy' -fwmark '$FWMARK' >'$t_logfile' 2>&1 &
+    nohup hev-socks5-tunnel '$t_cfgfile' >'$t_logfile' 2>&1 &
     echo \$! > '$t_pidfile'
   "
+
+  ip netns exec "$ns" bash -c 'for i in {1..50}; do ip link show tun0 >/dev/null 2>&1 && exit 0; sleep 0.1; done; exit 1' || {
+    echo "[$idx] tun0 was not created by hev-socks5-tunnel"
+    return 1
+  }
 
   configure_policy_routing "$ns" "$idx"
   bypass_dns_via_veth "$ns" "$idx"
@@ -228,7 +258,7 @@ start_tun2socks_and_wipter() {
     echo \$! > '$w_pidfile'
   " &
 
-  echo "[$idx] Started Wipter (ns=$ns). Logs: $w_logfile  tun2socks: $t_logfile"
+  echo "[$idx] Started Wipter (ns=$ns). Logs: $w_logfile  hev-socks5-tunnel: $t_logfile"
 }
 
 # ensure NAT for namespaces to the world
@@ -249,7 +279,7 @@ cleanup() {
   echo
   echo "Cleaning up Wipter instances..."
   for f in "$WORKDIR"/wipter_*.pid; do [[ -f "$f" ]] && kill "$(cat "$f")" 2>/dev/null || true; done
-  for f in "$WORKDIR"/tun2socks_*.pid; do [[ -f "$f" ]] && kill "$(cat "$f")" 2>/dev/null || true; done
+  for f in "$WORKDIR"/hev-socks5-tunnel_*.pid; do [[ -f "$f" ]] && kill "$(cat "$f")" 2>/dev/null || true; done
   for ns in $(ip netns list | awk '{print $1}' | grep -E "^${BASE_NS}[0-9]+$" || true); do
     local idx="${ns#$BASE_NS}"
     ip link del "${VETH_PREFIX}${idx}h" 2>/dev/null || true
@@ -278,7 +308,7 @@ main() {
       fi
     fi
     used=$((used+1))
-    start_tun2socks_and_wipter "$used" "$p"
+    start_hev_socks5_tunnel_and_wipter "$used" "$p"
   done
 
   if (( used > 0 )); then

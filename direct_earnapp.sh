@@ -29,7 +29,7 @@ require_root() {
     echo "Run as root. Example: sudo $0 $PROXY_FILE"
     exit 1
   fi
-  command -v tun2socks >/dev/null 2>&1 || { echo "tun2socks not found in PATH"; exit 1; }
+  command -v hev-socks5-tunnel >/dev/null 2>&1 || { echo "hev-socks5-tunnel not found in PATH"; exit 1; }
   command -v earnapp >/dev/null 2>&1 || { echo "earnapp not found in PATH (/usr/bin/earnapp)"; exit 1; }
 }
 
@@ -199,7 +199,7 @@ configure_policy_routing() {
   ip netns exec "$ns" ip rule add lookup "$TUN_TABLE" priority 200 2>/dev/null || true
 }
 
-start_tun2socks_and_app() {
+start_hev_socks5_tunnel_and_app() {
   local idx="$1"
   local proxy="$2"
   local parsed proto user pass host port
@@ -212,18 +212,49 @@ start_tun2socks_and_app() {
   local B C
   read -r B C <<<"$(calc_octets "$idx")"
   
-  ip netns exec "$ns" ip tuntap add dev tun0 mode tun
-  ip netns exec "$ns" ip addr add "198.18.${B}.${C}/30" dev tun0
-  ip netns exec "$ns" ip link set tun0 up
-  
   pin_proxy_route_in_ns "$ns" "$idx" "$host"
-  
-  local t_pidfile="$WORKDIR/tun2socks_${idx}.pid"
-  local t_logfile="$WORKDIR/tun2socks_${idx}.log"
+
+  local t_pidfile="$WORKDIR/hev-socks5-tunnel_${idx}.pid"
+  local t_logfile="$WORKDIR/hev-socks5-tunnel_${idx}.log"
+  local t_cfgfile="$WORKDIR/hev-socks5-tunnel_${idx}.yml"
+  local fwmark_dec=$((FWMARK))
+  local tun_ip="198.18.${B}.${C}"
+
+  if [[ "$proto" == "socks5h" ]]; then
+    proto="socks5"
+  fi
+  if [[ "$proto" != "socks5" ]]; then
+    echo "[$idx] Unsupported proxy protocol for hev-socks5-tunnel: $proto"
+    return 1
+  fi
+
+  cat >"$t_cfgfile" <<EOF
+
+tunnel:
+  name: tun0
+  mtu: 8500
+  ipv4: $tun_ip
+socks5:
+  address: $host
+  port: $port
+  udp: 'udp'
+  username: '$user'
+  password: '$pass'
+  mark: $fwmark_dec
+misc:
+  log-file: stderr
+  log-level: info
+EOF
+
   ip netns exec "$ns" bash -c "
-    tun2socks -device tun0 -proxy '$proxy' -fwmark '$FWMARK' >'$t_logfile' 2>&1 &
+    hev-socks5-tunnel '$t_cfgfile' >'$t_logfile' 2>&1 &
     echo \$! > '$t_pidfile'
   "
+
+  ip netns exec "$ns" bash -c 'for i in {1..50}; do ip link show tun0 >/dev/null 2>&1 && exit 0; sleep 0.1; done; exit 1' || {
+    echo "[$idx] tun0 was not created by hev-socks5-tunnel"
+    return 1
+  }
   
   configure_policy_routing "$ns" "$idx"
   bypass_dns_via_veth "$ns" "$idx"
@@ -266,7 +297,7 @@ cleanup() {
   echo
   echo "Cleaning up..."
   for f in "$WORKDIR"/app_*.pid; do [[ -f "$f" ]] && kill "$(cat "$f")" 2>/dev/null || true; done
-  for f in "$WORKDIR"/tun2socks_*.pid; do [[ -f "$f" ]] && kill "$(cat "$f")" 2>/dev/null || true; done
+  for f in "$WORKDIR"/hev-socks5-tunnel_*.pid; do [[ -f "$f" ]] && kill "$(cat "$f")" 2>/dev/null || true; done
   for ns in $(ip netns list | awk '{print $1}' | grep -E "^${BASE_NS}[0-9]+$" || true); do
     local idx="${ns#$BASE_NS}"
     ip link del "${VETH_PREFIX}${idx}h" 2>/dev/null || true # Using variable
@@ -329,7 +360,7 @@ main() {
       echo "[src#$i] ok ($res): $p"
     fi
     used=$((used+1))
-    start_tun2socks_and_app "$used" "$p"
+    start_hev_socks5_tunnel_and_app "$used" "$p"
   done
   
   if (( used > 0 )); then
