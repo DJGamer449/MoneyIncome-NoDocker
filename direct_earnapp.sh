@@ -29,7 +29,7 @@ require_root() {
     echo "Run as root. Example: sudo $0 $PROXY_FILE"
     exit 1
   fi
-  command -v tun2socks >/dev/null 2>&1 || { echo "tun2socks not found in PATH"; exit 1; }
+  command -v hev-socks5-tunnel >/dev/null 2>&1 || { echo "hev-socks5-tunnel not found in PATH"; exit 1; }
   command -v earnapp >/dev/null 2>&1 || { echo "earnapp not found in PATH (/usr/bin/earnapp)"; exit 1; }
 }
 
@@ -52,8 +52,8 @@ parse_proxy() {
   host="${hostport%%:*}"
   port="${hostport#*:}"
   case "$proto" in
-    socks5|socks5h|http|https) ;;
-    *) echo "UNSUPPORTED_PROTO"; return 1 ;;
+    socks5|socks5h) ;;
+    *) echo "UNSUPPORTED_PROTO_ONLY_SOCKS5"; return 1 ;;
   esac
   echo "$proto" "$user" "$pass" "$host" "$port"
 }
@@ -199,7 +199,7 @@ configure_policy_routing() {
   ip netns exec "$ns" ip rule add lookup "$TUN_TABLE" priority 200 2>/dev/null || true
 }
 
-start_tun2socks_and_app() {
+start_hev_socks5_tunnel_and_app() {
   local idx="$1"
   local proxy="$2"
   local parsed proto user pass host port
@@ -218,10 +218,30 @@ start_tun2socks_and_app() {
   
   pin_proxy_route_in_ns "$ns" "$idx" "$host"
   
-  local t_pidfile="$WORKDIR/tun2socks_${idx}.pid"
-  local t_logfile="$WORKDIR/tun2socks_${idx}.log"
+  local t_pidfile="$WORKDIR/hev_socks5_tunnel_${idx}.pid"
+  local t_logfile="$WORKDIR/hev_socks5_tunnel_${idx}.log"
+  local t_conf="$WORKDIR/hev_socks5_tunnel_${idx}.yml"
+  cat >"$t_conf" <<EOF
+
+tunnel:
+  name: tun0
+  mtu: 8500
+  ipv4: 198.18.${B}.${C}
+
+socks5:
+  address: ${host}
+  port: ${port}
+  mark: $((FWMARK))
+EOF
+  if [[ "$proxy" == *"@"* ]]; then
+    cat >>"$t_conf" <<EOF
+  username: '${user}'
+  password: '${pass}'
+EOF
+  fi
+
   ip netns exec "$ns" bash -c "
-    tun2socks -device tun0 -proxy '$proxy' -fwmark '$FWMARK' >'$t_logfile' 2>&1 &
+    hev-socks5-tunnel '$t_conf' >'$t_logfile' 2>&1 &
     echo \$! > '$t_pidfile'
   "
   
@@ -266,7 +286,7 @@ cleanup() {
   echo
   echo "Cleaning up..."
   for f in "$WORKDIR"/app_*.pid; do [[ -f "$f" ]] && kill "$(cat "$f")" 2>/dev/null || true; done
-  for f in "$WORKDIR"/tun2socks_*.pid; do [[ -f "$f" ]] && kill "$(cat "$f")" 2>/dev/null || true; done
+  for f in "$WORKDIR"/hev_socks5_tunnel_*.pid; do [[ -f "$f" ]] && kill "$(cat "$f")" 2>/dev/null || true; done
   for ns in $(ip netns list | awk '{print $1}' | grep -E "^${BASE_NS}[0-9]+$" || true); do
     local idx="${ns#$BASE_NS}"
     ip link del "${VETH_PREFIX}${idx}h" 2>/dev/null || true # Using variable
@@ -329,7 +349,7 @@ main() {
       echo "[src#$i] ok ($res): $p"
     fi
     used=$((used+1))
-    start_tun2socks_and_app "$used" "$p"
+    start_hev_socks5_tunnel_and_app "$used" "$p"
   done
   
   if (( used > 0 )); then

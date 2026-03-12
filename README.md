@@ -9,7 +9,7 @@ A unified multi-service Linux network namespace manager for:
 -   PacketStream
 -   UrNetwork
 -   CastarSDK
--   tun2socks (xjasonlyu native binary)
+-   hev-socks5-tunnel (native binary)
 
 Run multiple services simultaneously using isolated Linux network
 namespaces with proxy routing.
@@ -20,7 +20,7 @@ namespaces with proxy routing.
 
 -   Run **EarnApp, TraffMonetizer, PacketStream, UrNetwork, CastarSDK** at the same time
 -   Each service runs in its own isolated netns
--   Automatic proxy routing via tun2socks
+-   Automatic proxy routing via hev-socks5-tunnel
 -   No IP collision (separate namespace prefixes)
 -   Live output (no hidden logging)
 -   Clean Ctrl+C shutdown
@@ -48,7 +48,7 @@ namespaces with proxy routing.
 mâin.sh\
 direct_earnapp.sh\
 direct_traff.sh\
-install_tun2socks.sh\
+install_hev_socks5_tunnel.sh\
 proxies.txt
 
 ------------------------------------------------------------------------
@@ -78,7 +78,7 @@ sudo ./main.sh
 
 Select option:
 
-4)  Install tun2socks
+4)  Install hev-socks5-tunnel
 
 ------------------------------------------------------------------------
 
@@ -98,7 +98,7 @@ Each service:
 -   Gets its own Linux network namespace
 -   Gets its own veth pair
 -   Gets its own TUN device
--   Routes traffic through tun2socks
+-   Routes traffic through hev-socks5-tunnel
 -   Uses independent IP ranges
 
 Namespace prefixes:

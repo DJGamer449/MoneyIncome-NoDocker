@@ -18,7 +18,7 @@ BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 EARNAPP_SCRIPT="$BASE_DIR/direct_earnapp.sh"
 TRAFF_SCRIPT="$BASE_DIR/direct_traff.sh"
 UR_SCRIPT="$BASE_DIR/direct_urnetwork.sh"
-INSTALL_SCRIPT="$BASE_DIR/install_tun2socks.sh"
+INSTALL_SCRIPT="$BASE_DIR/install_hev_socks5_tunnel.sh"
 WIPTER_SCRIPT="$BASE_DIR/direct_wipter.sh"
 
 PIDS=()
@@ -347,7 +347,7 @@ menu() {
   echo "3) Run PacketStream"
   echo "4) Run UrNetwork"
   echo "5) Run Castar"
-  echo "6) Install tun2socks"
+  echo "6) Install hev-socks5-tunnel"
   echo "7) Install EarnApp Binary"
   echo "8) Install Dependencies"
   echo "9) Run ALL (Safe Mode)"
