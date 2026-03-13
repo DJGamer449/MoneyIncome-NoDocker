@@ -304,7 +304,7 @@ run_urnetwork() {
   create_netns_with_veth "urns" "ur" "${NS_INDEX[urns]}"
   echo "Starting UrNetwork..."
   if [[ ! -f "$HOME/.urnetwork/jwt" ]]; then
-    ./provider auth
+    ./app/provider auth
   fi
   sudo BASE_NS=urns VETH_PREFIX=ur WORKDIR=/tmp/ur_multi \
     bash "$UR_SCRIPT" proxies.txt &
