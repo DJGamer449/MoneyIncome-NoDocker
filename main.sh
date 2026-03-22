@@ -12,7 +12,7 @@ for f in "$(dirname "$0")"/*.sh; do
   [ -f "$f" ] && sed -i 's/\r$//' "$f" 2>/dev/null || true
 done
 
-chmod +x ./app/cli ./app/psclient ./app/provider ./app/CastarSDK 2>/dev/null || true
+chmod +x ./app/cli ./app/psclient ./app/provider ./app/CastarSDK ./app/honeygain_file/honeygain 2>/dev/null || true
 
 BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 EARNAPP_SCRIPT="$BASE_DIR/direct_earnapp.sh"
@@ -20,6 +20,8 @@ TRAFF_SCRIPT="$BASE_DIR/direct_traff.sh"
 UR_SCRIPT="$BASE_DIR/direct_urnetwork.sh"
 INSTALL_SCRIPT="$BASE_DIR/install_hev-socks5-tunnel.sh"
 WIPTER_SCRIPT="$BASE_DIR/direct_wipter.sh"
+HONEYGAIN_SCRIPT="$BASE_DIR/direct_honeygain.sh"
+HONEYGAIN_ACCOUNTS_FILE="$BASE_DIR/honeygain_password.txt"
 
 PIDS=()
 EXITING=0
@@ -28,6 +30,7 @@ PS_TOKEN=""
 CASTAR_KEY=""
 WIPTER_EMAIL=""
 WIPTER_PASSWORD=""
+HONEYGAIN_ACCOUNTS=()
 
 # maps ns name -> numeric index used for subnet allocation
 declare -A NS_INDEX=(
@@ -37,79 +40,49 @@ declare -A NS_INDEX=(
   [castarns]=4
   [urns]=5
   [wipterns]=6
+  [honeyns]=7
 )
 
-# store created namespaces for cleanup
 CREATED_NETNS=()
-# store iptables rules we added (subnets) for cleanup
 CREATED_SUBNETS=()
 
-# detect host default interface for NAT
 HOST_IF="$(ip route show default 2>/dev/null | awk '/default/ {print $5; exit}')"
-[ -n "$HOST_IF" ] || HOST_IF="eth0"  # fallback
+[ -n "$HOST_IF" ] || HOST_IF="eth0"
 
-# ===============================
-# KERNEL TUNE (conservative & safer)
-# ===============================
 kernel_tune() {
   echo "Applying conservative kernel tuning for high-scale (safe defaults)..."
-
-  # FILE DESCRIPTORS
   sudo modprobe nf_conntrack 2>/dev/null || true
   ulimit -n 2097152 || true
   sudo sysctl -w fs.file-max=1000000 >/dev/null || true
   sudo sysctl -w fs.nr_open=2000000 >/dev/null || true
-
-  # TCP tweaks (conservative)
   sudo sysctl -w net.ipv4.tcp_tw_reuse=1 >/dev/null || true
   sudo sysctl -w net.ipv4.tcp_fin_timeout=30 >/dev/null || true
   sudo sysctl -w net.ipv4.tcp_max_tw_buckets=200000 >/dev/null || true
-
-  # connection tracking (raise but not insane)
   sudo sysctl -w net.netfilter.nf_conntrack_max=262144 >/dev/null || true
   sudo sysctl -w net.netfilter.nf_conntrack_tcp_timeout_established=600 >/dev/null || true
-
-  # network stack
   sudo sysctl -w net.core.somaxconn=65535 >/dev/null || true
   sudo sysctl -w net.core.netdev_max_backlog=262144 >/dev/null || true
   sudo sysctl -w net.core.rmem_max=67108864 >/dev/null || true
   sudo sysctl -w net.core.wmem_max=67108864 >/dev/null || true
   sudo sysctl -w net.ipv4.tcp_rmem="4096 87380 33554432" >/dev/null || true
   sudo sysctl -w net.ipv4.tcp_wmem="4096 65536 33554432" >/dev/null || true
-
-  # VM limits
   sudo sysctl -w vm.max_map_count=262144 >/dev/null || true
   sudo sysctl -w vm.swappiness=10 >/dev/null || true
-
-  # enable ip forwarding for NAT (required for per-namespace internet)
   sudo sysctl -w net.ipv4.ip_forward=1 >/dev/null || true
-
-  # enable BBR if available
   sudo modprobe tcp_bbr 2>/dev/null || true
   sudo sysctl -w net.core.default_qdisc=fq >/dev/null || true
   sudo sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null || true
-
-  # IMPORTANT: Do NOT overwrite global /etc/resolv.conf here.
-  # We'll provide per-namespace resolv.conf files so starting multiple services won't break host DNS.
   echo "Kernel tuning applied (conservative)."
 }
 
-# ===============================
-# Create network namespace + veth pair + NAT
-# each ns gets a /24 10.200.<index>.0/24
-# host veth IP = 10.200.<index>.1
-# ns veth IP   = 10.200.<index>.2
-# ===============================
 create_netns_with_veth() {
   local ns="$1"
   local veth_prefix="${2:-veth}"
   local idx="${3:-0}"
 
-  # derive idx automatically if not provided
   if [ "$idx" -eq 0 ]; then
     idx="${NS_INDEX[$ns]:-0}"
     if [ -z "$idx" ] || [ "$idx" -eq 0 ]; then
-      # pick a free index (starting 10)
       idx=10
       while ip netns list | grep -qw "ns${idx}"; do
         idx=$((idx+1))
@@ -117,14 +90,12 @@ create_netns_with_veth() {
     fi
   fi
 
-  # skip if exists
   if ip netns list | awk '{print $1}' | grep -qw "$ns"; then
     echo "Netns $ns already exists, skipping creation."
     return 0
   fi
 
   echo "Creating netns $ns with veth prefix ${veth_prefix} idx ${idx}..."
-
   sudo ip netns add "$ns"
   CREATED_NETNS+=("$ns")
 
@@ -134,72 +105,45 @@ create_netns_with_veth() {
   local ns_ip="10.200.${idx}.2/24"
   local subnet="10.200.${idx}.0/24"
 
-  # create veth pair
   sudo ip link add "$host_if" type veth peer name "$ns_if"
-  # move ns side to namespace
   sudo ip link set "$ns_if" netns "$ns"
-
-  # configure host side
   sudo ip addr add "$host_ip" dev "$host_if" || true
   sudo ip link set "$host_if" up
-
-  # configure ns side
   sudo ip netns exec "$ns" ip addr add "$ns_ip" dev "$ns_if"
   sudo ip netns exec "$ns" ip link set "$ns_if" up
   sudo ip netns exec "$ns" ip link set lo up
   sudo ip netns exec "$ns" ip route add default via "10.200.${idx}.1" || true
-
-  # set per-namespace resolv.conf (so DNS inside ns works and host DNS remains untouched)
   sudo mkdir -p "/etc/netns/$ns"
   echo "nameserver 1.1.1.1" | sudo tee /etc/netns/"$ns"/resolv.conf >/dev/null
   echo "nameserver 8.8.8.8" | sudo tee -a /etc/netns/"$ns"/resolv.conf >/dev/null
-
-  # NAT for that subnet to the host default interface
   sudo iptables -t nat -A POSTROUTING -s "$subnet" -o "$HOST_IF" -j MASQUERADE
   CREATED_SUBNETS+=("$subnet")
-
   echo "Netns $ns created: host dev $host_if ($host_ip) <-> ns dev $ns_if ($ns_ip)."
 }
 
-# ===============================
-# Cleanup
-# ===============================
 cleanup() {
   [[ "$EXITING" == "1" ]] && return
   EXITING=1
   echo -e "\nStopping all running services..."
-
-  # kill backgrounded PIDs
-  for pid in "${PIDS[@]:-}"; do
-    kill "$pid" 2>/dev/null || true
-  done
+  for pid in "${PIDS[@]:-}"; do kill "$pid" 2>/dev/null || true; done
   wait 2>/dev/null || true
-
-  # remove iptables NAT rules we added
   for subnet in "${CREATED_SUBNETS[@]:-}"; do
     sudo iptables -t nat -D POSTROUTING -s "$subnet" -o "$HOST_IF" -j MASQUERADE 2>/dev/null || true
   done
-
-  # remove namespaces
   for ns in "${CREATED_NETNS[@]:-}"; do
     sudo ip netns delete "$ns" 2>/dev/null || true
     sudo rm -rf /etc/netns/"$ns" 2>/dev/null || true
   done
-
   echo "All services and network namespaces stopped/removed."
   exit 0
 }
 trap cleanup INT TERM
 
-# ===============================
-# Token Input (updated: includes Wipter creds)
-# ===============================
 ask_tokens() {
   echo "========== TOKEN SETUP =========="
   read -rp "Enter Traff token (or leave blank): " TRAFF_TOKEN
   read -rp "Enter PacketStream CID token (or leave blank): " PS_TOKEN
   read -rp "Enter Castar Key (or leave blank): " CASTAR_KEY
-
   echo "------ Wipter Credentials ------"
   read -rp "Enter Wipter Email (or leave blank): " WIPTER_EMAIL
   read -rsp "Enter Wipter Password (hidden, leave blank to skip): " WIPTER_PASSWORD
@@ -216,20 +160,102 @@ install_earnapp() {
   wget -qO- https://brightdata.com/static/earnapp/install.sh > /tmp/earnapp.sh && sudo bash /tmp/earnapp.sh
 }
 
-# ===============================
-# Utilities to clone arbitrary repo and run inside its own namespace
-# Example:
-#   clone_and_run "https://github.com/me/app.git" "app" "./start.sh" \
-#       -> clones to /opt/apps/app and runs /opt/apps/app/start.sh inside namespace "appns"
-# ===============================
+load_honeygain_accounts() {
+  HONEYGAIN_ACCOUNTS=()
+  [[ -f "$HONEYGAIN_ACCOUNTS_FILE" ]] || return 0
+  while IFS='|' read -r email password; do
+    [[ -n "${email:-}" && -n "${password:-}" ]] || continue
+    HONEYGAIN_ACCOUNTS+=("${email}|${password}")
+  done < "$HONEYGAIN_ACCOUNTS_FILE"
+}
+
+save_honeygain_accounts() {
+  : > "$HONEYGAIN_ACCOUNTS_FILE"
+  chmod 600 "$HONEYGAIN_ACCOUNTS_FILE"
+  local entry
+  for entry in "${HONEYGAIN_ACCOUNTS[@]:-}"; do
+    printf '%s\n' "$entry" >> "$HONEYGAIN_ACCOUNTS_FILE"
+  done
+}
+
+prompt_honeygain_account() {
+  local email password
+  while true; do
+    read -rp "Enter Honeygain email: " email
+    [[ -n "$email" ]] && break
+    echo "Email cannot be empty."
+  done
+  while true; do
+    read -rsp "Enter Honeygain password: " password
+    echo
+    [[ -n "$password" ]] && break
+    echo "Password cannot be empty."
+  done
+  HONEYGAIN_ACCOUNTS+=("${email}|${password}")
+}
+
+setup_honeygain_accounts() {
+  load_honeygain_accounts
+
+  echo "------ Honeygain Account Setup ------"
+  if ((${#HONEYGAIN_ACCOUNTS[@]} > 0)); then
+    echo "Saved Honeygain accounts found: ${#HONEYGAIN_ACCOUNTS[@]}"
+    local idx=1 entry email
+    for entry in "${HONEYGAIN_ACCOUNTS[@]}"; do
+      email="${entry%%|*}"
+      echo "  ${idx}) ${email}"
+      idx=$((idx+1))
+    done
+    read -rp "Use saved accounts? [Y/n]: " use_saved
+    if [[ "$use_saved" =~ ^[Nn]$ ]]; then
+      HONEYGAIN_ACCOUNTS=()
+    else
+      read -rp "Add more accounts to previous setup? [y/N]: " add_more_saved
+      if [[ "$add_more_saved" =~ ^[Yy]$ ]]; then
+        while true; do
+          prompt_honeygain_account
+          read -rp "Add another Honeygain account? [y/N]: " another
+          [[ "$another" =~ ^[Yy]$ ]] || break
+        done
+      fi
+    fi
+  fi
+
+  if ((${#HONEYGAIN_ACCOUNTS[@]} == 0)); then
+    local mode
+    while true; do
+      echo "1) Single account"
+      echo "2) Multiple accounts"
+      read -rp "Choose Honeygain mode [1-2]: " mode
+      case "$mode" in
+        1)
+          prompt_honeygain_account
+          break
+          ;;
+        2)
+          while true; do
+            prompt_honeygain_account
+            read -rp "Add another Honeygain account? [y/N]: " another_multi
+            [[ "$another_multi" =~ ^[Yy]$ ]] || break
+          done
+          break
+          ;;
+        *) echo "Invalid option." ;;
+      esac
+    done
+  fi
+
+  save_honeygain_accounts
+  echo "Honeygain accounts ready: ${#HONEYGAIN_ACCOUNTS[@]}"
+}
+
 clone_and_run() {
   local repo_url="$1"
   local app_name="$2"
-  local run_cmd="$3"    # command relative to repo dir to run, e.g. "./start.sh arg1"
+  local run_cmd="$3"
   local ns_name="${4:-${app_name}ns}"
   local veth_prefix="${5:-${app_name}_veth}"
   local idx="${6:-0}"
-
   local dest="/opt/apps/$app_name"
 
   sudo mkdir -p /opt/apps
@@ -242,20 +268,13 @@ clone_and_run() {
     (cd "$dest" && git pull) || true
   fi
 
-  # ensure namespace exists (creates if missing)
   create_netns_with_veth "$ns_name" "$veth_prefix" "$idx"
-
   echo "Starting $app_name inside namespace $ns_name..."
-  # run the app inside the namespace; we run via sudo so namespace permissions are OK
   sudo ip netns exec "$ns_name" bash -lc "cd '$dest' && nohup $run_cmd >/tmp/${app_name}.log 2>&1 & echo \$!" \
     | { read -r pid; echo "$pid"; PIDS+=("$pid"); } >/dev/null 2>&1 || true
-
   echo "$app_name started (check /tmp/${app_name}.log in namespace context)."
 }
 
-# ===============================
-# SERVICE RUNNERS (adapted to ensure corresponding netns exists)
-# ===============================
 run_earnapp() {
   create_netns_with_veth "earnns" "earn" "${NS_INDEX[earnns]}"
   echo "Starting EarnApp..."
@@ -311,35 +330,47 @@ run_urnetwork() {
   PIDS+=($!)
 }
 
-# -------------------------------
-# Wipter runner (uses credentials from startup)
-# -------------------------------
 run_wipter() {
   if [[ ! -x "$WIPTER_SCRIPT" ]]; then
     echo "direct_wipter.sh not found or not executable at $WIPTER_SCRIPT"
     echo "Place direct_wipter.sh in $BASE_DIR and chmod +x it."
     return
   fi
-
   if [[ -z "${WIPTER_EMAIL:-}" || -z "${WIPTER_PASSWORD:-}" ]]; then
     echo "Wipter credentials not set. Please restart and provide them, or set WIPTER_EMAIL/WIPTER_PASSWORD in environment."
     return
   fi
-
   create_netns_with_veth "wipterns" "wipter" "${NS_INDEX[wipterns]}"
   echo "Starting Wipter..."
-  sudo BASE_NS=wipterns \
-       VETH_PREFIX=wipter \
-       WORKDIR=/tmp/wipter_multi \
-       WIPTER_EMAIL="$WIPTER_EMAIL" \
-       WIPTER_PASSWORD="$WIPTER_PASSWORD" \
-       bash "$WIPTER_SCRIPT" proxies.txt &
+  sudo BASE_NS=wipterns VETH_PREFIX=wipter WORKDIR=/tmp/wipter_multi WIPTER_EMAIL="$WIPTER_EMAIL" WIPTER_PASSWORD="$WIPTER_PASSWORD" \
+    bash "$WIPTER_SCRIPT" proxies.txt &
   PIDS+=($!)
 }
 
-# ===============================
-# MENU
-# ===============================
+run_honeygain() {
+  if [[ ! -x "$HONEYGAIN_SCRIPT" ]]; then
+    echo "direct_honeygain.sh not found or not executable at $HONEYGAIN_SCRIPT"
+    return
+  fi
+  if [[ ! -x "$BASE_DIR/app/honeygain_file/honeygain" ]]; then
+    echo "Honeygain binary missing at app/honeygain_file/honeygain"
+    return
+  fi
+
+  setup_honeygain_accounts
+  if ((${#HONEYGAIN_ACCOUNTS[@]} == 0)); then
+    echo "No Honeygain accounts configured."
+    return
+  fi
+
+  local account_blob
+  account_blob=$(printf '%s\n' "${HONEYGAIN_ACCOUNTS[@]}")
+  echo "Starting Honeygain with ${#HONEYGAIN_ACCOUNTS[@]} account(s)..."
+  sudo BASE_NS=honeyns VETH_PREFIX=honey WORKDIR=/tmp/honeygain_multi HONEYGAIN_ACCOUNTS="$account_blob" \
+    bash "$HONEYGAIN_SCRIPT" proxies.txt &
+  PIDS+=($!)
+}
+
 menu() {
   echo -e "\n====== GRAND NETWORK MANAGER (HARDENED / MULTI-NS) ======"
   echo "1) Run EarnApp"
@@ -352,14 +383,12 @@ menu() {
   echo "8) Install Dependencies"
   echo "9) Run ALL (Safe Mode)"
   echo "A) Clone & Run custom repo"
+  echo "H) Run Honeygain"
   echo "W) Run Wipter"
   echo "0) Exit"
   echo "==============================================="
 }
 
-# ===============================
-# STARTUP
-# ===============================
 kernel_tune
 ask_tokens
 
@@ -381,6 +410,7 @@ while true; do
       run_packetstream
       run_urnetwork
       run_castar
+      run_honeygain
       run_wipter
       echo "All services running (staggered safe mode). Press Ctrl+C to stop."
       wait
@@ -391,6 +421,7 @@ while true; do
       read -rp "Run command (relative to repo root, e.g. ./start.sh): " runcmd
       clone_and_run "$repo" "$aname" "$runcmd"
       ;;
+    H|h) run_honeygain ; wait ;;
     W|w) run_wipter ; wait ;;
     0) cleanup ;;
     *) echo "Invalid option." ;;
