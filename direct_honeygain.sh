@@ -14,6 +14,9 @@ FWMARK="${FWMARK:-0x22b}"
 TUN_TABLE="${TUN_TABLE:-100}"
 BYPASS_UDP53="${BYPASS_UDP53:-0}"
 BYPASS_ALL_UDP="${BYPASS_ALL_UDP:-0}"
+# Honeygain must not bypass UDP directly via the host, otherwise the app can expose the
+# host IP instead of the proxy IP. Keep both disabled by default so all app traffic
+# stays on tun0, while hev's own marked sockets still use the direct route.
 HONEYGAIN_DIR="${HONEYGAIN_DIR:-./app/honeygain_file}"
 HONEYGAIN_BIN="${HONEYGAIN_BIN:-$HONEYGAIN_DIR/honeygain}"
 HONEYGAIN_LIB_DIR="${HONEYGAIN_LIB_DIR:-$HONEYGAIN_DIR}"
@@ -107,6 +110,26 @@ create_ns_with_veth() {
   echo "$ns"
 }
 
+resolve_ipv4_targets() {
+  local host="$1"
+  if [[ "$host" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    printf '%s
+' "$host"
+  else
+    getent ahostsv4 "$host" | awk '{print $1}' | sort -u
+  fi
+}
+
+pin_proxy_route_in_ns() {
+  local ns="$1" idx="$2" proxy_host="$3"
+  local B C gw dev ip
+  read -r B C <<<"$(calc_octets "$idx")"
+  gw="10.${B}.${C}.1"
+  dev="${VETH_PREFIX}${idx}n"
+  while read -r ip; do
+    [[ -n "$ip" ]] || continue
+    ip netns exec "$ns" ip route replace "$ip/32" via "$gw" dev "$dev" || true
+  done < <(resolve_ipv4_targets "$proxy_host")
 pin_proxy_route_in_ns() {
   local ns="$1" idx="$2" proxy_host="$3"
   local B C gw dev
@@ -150,6 +173,38 @@ reset_ns_firewall_allow_all() {
     iptables -P OUTPUT ACCEPT
     iptables -P FORWARD ACCEPT
   '
+}
+
+configure_ns_egress_killswitch() {
+  local ns="$1" idx="$2" proxy_host="$3"
+  local B C ns_dev gateway ip
+  read -r B C <<<"$(calc_octets "$idx")"
+  ns_dev="${VETH_PREFIX}${idx}n"
+  gateway="10.${B}.${C}.1"
+
+  ip netns exec "$ns" iptables -F
+  ip netns exec "$ns" iptables -P INPUT DROP
+  ip netns exec "$ns" iptables -P OUTPUT DROP
+  ip netns exec "$ns" iptables -P FORWARD DROP
+
+  ip netns exec "$ns" iptables -A INPUT -i lo -j ACCEPT
+  ip netns exec "$ns" iptables -A OUTPUT -o lo -j ACCEPT
+  ip netns exec "$ns" iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+  ip netns exec "$ns" iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+  ip netns exec "$ns" iptables -A INPUT -i tun0 -j ACCEPT
+  ip netns exec "$ns" iptables -A OUTPUT -o tun0 -j ACCEPT
+
+  ip netns exec "$ns" iptables -A OUTPUT -o "$ns_dev" -d "$gateway" -j ACCEPT
+  while read -r ip; do
+    [[ -n "$ip" ]] || continue
+    ip netns exec "$ns" iptables -A OUTPUT -o "$ns_dev" -d "$ip" -j ACCEPT
+  done < <(resolve_ipv4_targets "$proxy_host")
+
+  if [[ "$BYPASS_UDP53" == "1" || "$BYPASS_ALL_UDP" == "1" ]]; then
+    for ip in $NS_DNS_LIST; do
+      ip netns exec "$ns" iptables -A OUTPUT -o "$ns_dev" -d "$ip" -j ACCEPT
+    done
+  fi
 }
 
 configure_policy_routing() {
@@ -223,6 +278,7 @@ CFG
 
   configure_policy_routing "$ns" "$idx"
   bypass_dns_via_veth "$ns" "$idx"
+  configure_ns_egress_killswitch "$ns" "$idx" "$host"
   reset_ns_firewall_allow_all "$ns"
 
   local inst_dir="$WORKDIR/inst_${idx}"
