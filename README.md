@@ -10,6 +10,7 @@ A unified multi-service Linux network namespace manager for:
 -   UrNetwork
 -   CastarSDK
 -   hev-socks5-tunnel (heiher native binary)
+-   Honeygain
 
 Run multiple services simultaneously using isolated Linux network
 namespaces with proxy routing.
@@ -18,7 +19,7 @@ namespaces with proxy routing.
 
 ## ✨ Features
 
--   Run **EarnApp, TraffMonetizer, PacketStream, UrNetwork, CastarSDK** at the same time
+-   Run **EarnApp, TraffMonetizer, PacketStream, UrNetwork, CastarSDK, Honeygain** at the same time
 -   Each service runs in its own isolated netns
 -   Automatic proxy routing via hev-socks5-tunnel
 -   No IP collision (separate namespace prefixes)
@@ -40,6 +41,7 @@ namespaces with proxy routing.
 -   earnapp installed in /usr/bin/earnapp
 -   cli binary for Traff
 -   psclient binary for PacketStream
+-   Honeygain binary + libs in `app/honeygain_file`
 
 ------------------------------------------------------------------------
 
