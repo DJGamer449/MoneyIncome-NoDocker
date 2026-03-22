@@ -87,6 +87,7 @@ Select option:
 ## Honeygain Setup
 
 - Place the Honeygain binary and any companion dependency files inside `app/honeygain_file/`, with the executable at `app/honeygain_file/honeygain`.
+- Place the Honeygain binary in `app/honeygain_file/honeygain` and make sure it is executable.
 - Start Honeygain from the main menu with `H) Run Honeygain`.
 - The first run asks whether you want a single account or multiple accounts.
 - Credentials are stored in `honeygain_password.txt` after setup and you can optionally add more saved accounts before each start.

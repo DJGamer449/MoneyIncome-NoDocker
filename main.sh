@@ -384,6 +384,8 @@ run_honeygain() {
 
   if [[ ! -d "$BASE_DIR/app/honeygain_file" || ! -x "$BASE_DIR/app/honeygain_file/honeygain" ]]; then
     echo "Honeygain app directory or binary not ready at $BASE_DIR/app/honeygain_file"
+  if [[ ! -x "$BASE_DIR/app/honeygain_file/honeygain" ]]; then
+    echo "Honeygain binary not found or not executable at $BASE_DIR/app/honeygain_file/honeygain"
     return
   fi
 

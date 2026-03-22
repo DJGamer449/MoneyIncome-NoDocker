@@ -4,6 +4,7 @@ set -euo pipefail
 PROXY_FILE="${1:-proxies.txt}"
 HONEYGAIN_APP_DIR="${HONEYGAIN_APP_DIR:-./app/honeygain_file}"
 HONEYGAIN_BIN_NAME="${HONEYGAIN_BIN_NAME:-honeygain}"
+HONEYGAIN_BIN="${HONEYGAIN_BIN:-./app/honeygain_file/honeygain}"
 HONEYGAIN_ACCOUNTS_FILE="${HONEYGAIN_ACCOUNTS_FILE:-./honeygain_password.txt}"
 CHECK_WORKING="${CHECK_WORKING:-1}"
 CHECK_SPEED="${CHECK_SPEED:-0}"
@@ -19,6 +20,8 @@ FWMARK="${FWMARK:-0x22b}"
 TUN_TABLE="${TUN_TABLE:-100}"
 BYPASS_UDP53="${BYPASS_UDP53:-0}"
 BYPASS_ALL_UDP="${BYPASS_ALL_UDP:-0}"
+BYPASS_UDP53="${BYPASS_UDP53:-1}"
+BYPASS_ALL_UDP="${BYPASS_ALL_UDP:-1}"
 DEVICES_PER_ACCOUNT=10
 mkdir -p "$WORKDIR"
 
@@ -32,6 +35,7 @@ require_root() {
   command -v tun2socks >/dev/null 2>&1 || { echo "tun2socks not found in PATH"; exit 1; }
   [[ -d "$HONEYGAIN_APP_DIR" ]] || { echo "Honeygain app directory not found: $HONEYGAIN_APP_DIR"; exit 1; }
   [[ -x "$HONEYGAIN_APP_DIR/$HONEYGAIN_BIN_NAME" ]] || { echo "Honeygain binary not executable: $HONEYGAIN_APP_DIR/$HONEYGAIN_BIN_NAME"; exit 1; }
+  [[ -x "$HONEYGAIN_BIN" ]] || { echo "Honeygain binary not executable: $HONEYGAIN_BIN"; exit 1; }
   [[ -f "$HONEYGAIN_ACCOUNTS_FILE" ]] || { echo "Honeygain account file not found: $HONEYGAIN_ACCOUNTS_FILE"; exit 1; }
 }
 
@@ -278,6 +282,7 @@ start_tun2socks_and_honeygain() {
   local inst_dir app_dir
   prepare_honeygain_instance "$idx" inst_dir app_dir
 
+  local inst_dir="$WORKDIR/inst_${idx}"
   local mailname
   mailname="$(email_mailname "$email")"
   local device_name="${mailname}-${device_num}"
@@ -285,6 +290,10 @@ start_tun2socks_and_honeygain() {
 
   echo "[$idx] Starting Honeygain for $email as device=$device_name via proxy=$proxy (netns=$ns)"
   ip netns exec "$ns" bash -c "cd '$app_dir'; export HOME='$inst_dir'; './$HONEYGAIN_BIN_NAME' -tou-accept -email '$email' -pass '$password' -device '$device_name'" \
+  mkdir -p "$inst_dir"
+
+  echo "[$idx] Starting Honeygain for $email as device=$device_name via proxy=$proxy (netns=$ns)"
+  ip netns exec "$ns" bash -c "cd '$(pwd)'; export HOME='$inst_dir'; '$HONEYGAIN_BIN' -tou-accept -email '$email' -pass '$password' -device '$device_name'" \
     >"$app_logfile" 2>&1 &
 
   echo $! >"$WORKDIR/honeygain_${idx}.pid"
