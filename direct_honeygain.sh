@@ -17,6 +17,8 @@ BYPASS_ALL_UDP="${BYPASS_ALL_UDP:-0}"
 # Honeygain must not bypass UDP directly via the host, otherwise the app can expose the
 # host IP instead of the proxy IP. Keep both disabled by default so all app traffic
 # stays on tun0, while hev's own marked sockets still use the direct route.
+BYPASS_UDP53="${BYPASS_UDP53:-1}"
+BYPASS_ALL_UDP="${BYPASS_ALL_UDP:-1}"
 HONEYGAIN_DIR="${HONEYGAIN_DIR:-./app/honeygain_file}"
 HONEYGAIN_BIN="${HONEYGAIN_BIN:-$HONEYGAIN_DIR/honeygain}"
 HONEYGAIN_LIB_DIR="${HONEYGAIN_LIB_DIR:-$HONEYGAIN_DIR}"
