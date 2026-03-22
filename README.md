@@ -9,6 +9,7 @@ A unified multi-service Linux network namespace manager for:
 -   PacketStream
 -   UrNetwork
 -   CastarSDK
+-   Honeygain
 -   tun2socks (xjasonlyu native binary)
 
 Run multiple services simultaneously using isolated Linux network
@@ -18,7 +19,7 @@ namespaces with proxy routing.
 
 ## ✨ Features
 
--   Run **EarnApp, TraffMonetizer, PacketStream, UrNetwork, CastarSDK** at the same time
+-   Run **EarnApp, TraffMonetizer, PacketStream, UrNetwork, CastarSDK, Honeygain** at the same time
 -   Each service runs in its own isolated netns
 -   Automatic proxy routing via tun2socks
 -   No IP collision (separate namespace prefixes)
@@ -40,6 +41,7 @@ namespaces with proxy routing.
 -   earnapp installed in /usr/bin/earnapp
 -   cli binary for Traff
 -   psclient binary for PacketStream
+-   Honeygain binary at `app/honeygain_file/honeygain`
 
 ------------------------------------------------------------------------
 
@@ -79,6 +81,16 @@ sudo ./main.sh
 Select option:
 
 4)  Install tun2socks
+
+------------------------------------------------------------------------
+
+## Honeygain Setup
+
+- Place the Honeygain binary in `app/honeygain_file/honeygain` and make sure it is executable.
+- Start Honeygain from the main menu with `H) Run Honeygain`.
+- The first run asks whether you want a single account or multiple accounts.
+- Credentials are stored in `honeygain_password.txt` after setup and you can optionally add more saved accounts before each start.
+- Each saved account is used for up to 10 devices named `<mailname>-1` through `<mailname>-10`, then the script continues with the next account.
 
 ------------------------------------------------------------------------
 
