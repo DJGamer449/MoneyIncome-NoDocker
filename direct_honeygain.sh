@@ -130,6 +130,20 @@ pin_proxy_route_in_ns() {
     [[ -n "$ip" ]] || continue
     ip netns exec "$ns" ip route replace "$ip/32" via "$gw" dev "$dev" || true
   done < <(resolve_ipv4_targets "$proxy_host")
+pin_proxy_route_in_ns() {
+  local ns="$1" idx="$2" proxy_host="$3"
+  local B C gw dev
+  read -r B C <<<"$(calc_octets "$idx")"
+  gw="10.${B}.${C}.1"
+  dev="${VETH_PREFIX}${idx}n"
+  if [[ "$proxy_host" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    ip netns exec "$ns" ip route replace "$proxy_host/32" via "$gw" dev "$dev" || true
+  else
+    mapfile -t ips < <(getent ahostsv4 "$proxy_host" | awk '{print $1}' | sort -u)
+    for ip in "${ips[@]}"; do
+      ip netns exec "$ns" ip route replace "$ip/32" via "$gw" dev "$dev" || true
+    done
+  fi
 }
 
 bypass_dns_via_veth() {
@@ -265,6 +279,7 @@ CFG
   configure_policy_routing "$ns" "$idx"
   bypass_dns_via_veth "$ns" "$idx"
   configure_ns_egress_killswitch "$ns" "$idx" "$host"
+  reset_ns_firewall_allow_all "$ns"
 
   local inst_dir="$WORKDIR/inst_${idx}"
   local mailname="${email%@*}"
