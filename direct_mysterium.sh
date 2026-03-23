@@ -344,28 +344,39 @@ EOF
   reset_ns_firewall_allow_all "$ns"
   apply_udp_fallback_if_needed "$ns" "$idx"
 
-  local root_dir data_dir config_dir runtime_dir log_dir app_pidfile app_logfile ui_port
+  local root_dir data_dir config_dir runtime_dir log_dir script_dir xdg_config_dir xdg_data_dir xdg_runtime_dir tmp_dir app_pidfile app_logfile ui_port
   root_dir="$(instance_dir "$idx")"
   data_dir="$root_dir/data"
   config_dir="$root_dir/config"
   runtime_dir="$root_dir/run"
   log_dir="$root_dir/logs"
+  script_dir="$root_dir/script"
+  xdg_config_dir="$root_dir/xdg-config"
+  xdg_data_dir="$root_dir/xdg-data"
+  xdg_runtime_dir="$root_dir/xdg-runtime"
+  tmp_dir="$root_dir/tmp"
   app_pidfile="$WORKDIR/myst_${idx}.pid"
   app_logfile="$log_dir/myst.log"
   ui_port=$((MYST_UI_BASE_PORT + idx))
 
-  mkdir -p "$data_dir" "$config_dir" "$runtime_dir" "$log_dir"
+  mkdir -p "$data_dir" "$config_dir" "$runtime_dir" "$log_dir" \
+    "$script_dir" "$xdg_config_dir" "$xdg_data_dir" "$xdg_runtime_dir" "$tmp_dir"
 
   start_host_forwarder "$idx" "$ns"
 
   echo "[$idx] Starting Mysterium node in $root_dir"
   ip netns exec "$ns" bash -lc "
     export HOME='$root_dir'
-    cd '$(pwd)'
+    export XDG_CONFIG_HOME='$xdg_config_dir'
+    export XDG_DATA_HOME='$xdg_data_dir'
+    export XDG_RUNTIME_DIR='$xdg_runtime_dir'
+    export TMPDIR='$tmp_dir'
+    cd '$root_dir'
     exec '$MYST_BIN' \
       --data-dir='$data_dir' \
       --config-dir='$config_dir' \
       --runtime-dir='$runtime_dir' \
+      --script-dir='$script_dir' \
       service $MYST_TERMS_FLAG $MYST_EXTRA_ARGS
   " >"$app_logfile" 2>&1 &
   echo $! >"$app_pidfile"

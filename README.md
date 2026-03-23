@@ -26,6 +26,7 @@ namespaces with proxy routing.
 -   Automatic proxy routing via hev-socks5-tunnel
 -   Mysterium node connect UI is auto-forwarded from namespace-local `127.0.0.1:4449` to host `127.0.0.1:4450`, `4451`, `4452`, ...
 -   Persistent Mysterium data directories are auto-created under `myst/myst-1`, `myst/myst-2`, ...
+-   Each Mysterium instance now gets its own HOME/XDG/script directories so identities stay isolated across simultaneous logins
 -   Mysterium runner now probes UDP after tunnel setup and automatically falls back to direct UDP inside the namespace if the SOCKS proxy cannot relay UDP
 -   No IP collision (separate namespace prefixes)
 -   Live output (no hidden logging)
