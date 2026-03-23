@@ -12,7 +12,7 @@ VETH_PREFIX="${VETH_PREFIX:-mystv}"
 WORKDIR="${WORKDIR:-/tmp/mysterium_multi}"
 FWMARK="${FWMARK:-0x22b}"
 TUN_TABLE="${TUN_TABLE:-100}"
-BYPASS_UDP53="${BYPASS_UDP53:-0}"
+BYPASS_UDP53="${BYPASS_UDP53:-1}"
 BYPASS_ALL_UDP="${BYPASS_ALL_UDP:-0}"
 AUTO_UDP_DIRECT_FALLBACK="${AUTO_UDP_DIRECT_FALLBACK:-1}"
 MYST_BIN="${MYST_BIN:-$(command -v myst 2>/dev/null || true)}"
@@ -320,7 +320,7 @@ tunnel:
 socks5:
   address: $host
   port: $port
-  udp: 'tcp'
+  udp: 'udp'
   username: '$user'
   password: '$pass'
   mark: $fwmark_dec
