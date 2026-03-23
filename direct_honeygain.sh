@@ -12,7 +12,7 @@ VETH_PREFIX="${VETH_PREFIX:-hgv}"
 WORKDIR="${WORKDIR:-/tmp/honeygain_multi}"
 FWMARK="${FWMARK:-0x22b}"
 TUN_TABLE="${TUN_TABLE:-100}"
-BYPASS_UDP53="${BYPASS_UDP53:-0}"
+BYPASS_UDP53="${BYPASS_UDP53:-1}"
 BYPASS_ALL_UDP="${BYPASS_ALL_UDP:-0}"
 # Honeygain must not bypass UDP directly via the host, otherwise the app can expose the
 # host IP instead of the proxy IP. Keep both disabled by default so all app traffic
