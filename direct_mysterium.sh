@@ -279,12 +279,14 @@ apply_udp_fallback_if_needed() {
 
 start_host_forwarder() {
   local idx="$1"
-  local target_ip="$2"
+  local ns="$2"
   local listen_port=$((MYST_UI_BASE_PORT + idx))
   local pidfile="$WORKDIR/forward_${idx}.pid"
   local logfile="$WORKDIR/forward_${idx}.log"
 
-  "$SOCAT_BIN" "TCP-LISTEN:${listen_port},bind=127.0.0.1,reuseaddr,fork" "TCP:${target_ip}:${MYST_UI_BASE_PORT}" \
+  "$SOCAT_BIN" \
+    "TCP-LISTEN:${listen_port},bind=127.0.0.1,reuseaddr,fork" \
+    "EXEC:ip netns exec ${ns} ${SOCAT_BIN} STDIO TCP\\:127.0.0.1\\:${MYST_UI_BASE_PORT},nofork" \
     >"$logfile" 2>&1 &
   echo $! >"$pidfile"
   echo "[$idx] Connect UI forwarded to http://127.0.0.1:${listen_port}"
@@ -342,7 +344,7 @@ EOF
   reset_ns_firewall_allow_all "$ns"
   apply_udp_fallback_if_needed "$ns" "$idx"
 
-  local root_dir data_dir config_dir runtime_dir log_dir app_pidfile app_logfile ns_ip ui_port
+  local root_dir data_dir config_dir runtime_dir log_dir app_pidfile app_logfile ui_port
   root_dir="$(instance_dir "$idx")"
   data_dir="$root_dir/data"
   config_dir="$root_dir/config"
@@ -350,12 +352,11 @@ EOF
   log_dir="$root_dir/logs"
   app_pidfile="$WORKDIR/myst_${idx}.pid"
   app_logfile="$log_dir/myst.log"
-  ns_ip="10.${b}.${c}.2"
   ui_port=$((MYST_UI_BASE_PORT + idx))
 
   mkdir -p "$data_dir" "$config_dir" "$runtime_dir" "$log_dir"
 
-  start_host_forwarder "$idx" "$ns_ip"
+  start_host_forwarder "$idx" "$ns"
 
   echo "[$idx] Starting Mysterium node in $root_dir"
   ip netns exec "$ns" bash -lc "
