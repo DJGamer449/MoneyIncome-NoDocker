@@ -11,6 +11,7 @@ A unified multi-service Linux network namespace manager for:
 -   CastarSDK
 -   hev-socks5-tunnel (heiher native binary)
 -   Honeygain
+-   Mysterium Node
 
 Run multiple services simultaneously using isolated Linux network
 namespaces with proxy routing.
@@ -20,8 +21,11 @@ namespaces with proxy routing.
 ## ✨ Features
 
 -   Run **EarnApp, TraffMonetizer, PacketStream, UrNetwork, CastarSDK, Honeygain** at the same time
+-   Run **Mysterium Node** instances with isolated per-proxy namespaces
 -   Each service runs in its own isolated netns
 -   Automatic proxy routing via hev-socks5-tunnel
+-   Mysterium node connect UI is auto-forwarded to `127.0.0.1:4450`, `4451`, `4452`, ...
+-   Persistent Mysterium data directories are auto-created under `myst/myst-1`, `myst/myst-2`, ...
 -   No IP collision (separate namespace prefixes)
 -   Live output (no hidden logging)
 -   Clean Ctrl+C shutdown
@@ -50,6 +54,8 @@ namespaces with proxy routing.
 mâin.sh\
 direct_earnapp.sh\
 direct_traff.sh\
+direct_mysterium.sh\
+install_mysterium_node.sh\
 install_hev-socks5-tunnel.sh\
 proxies.txt
 
@@ -80,7 +86,9 @@ sudo ./main.sh
 
 Select option:
 
-4)  Install hev-socks5-tunnel
+- `6` to install hev-socks5-tunnel
+- `I` to install Mysterium Node
+- `M` to run Mysterium Node instances through the proxies in `proxies.txt`
 
 ------------------------------------------------------------------------
 
