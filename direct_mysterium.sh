@@ -21,6 +21,7 @@ MYST_UI_BASE_PORT="${MYST_UI_BASE_PORT:-4449}"
 MYST_TERMS_FLAG="${MYST_TERMS_FLAG:---agreed-terms-and-conditions}"
 MYST_EXTRA_ARGS="${MYST_EXTRA_ARGS:-}"
 SOCAT_BIN="${SOCAT_BIN:-$(command -v socat 2>/dev/null || true)}"
+UNSHARE_BIN="${UNSHARE_BIN:-$(command -v unshare 2>/dev/null || true)}"
 
 mkdir -p "$WORKDIR" "$MYST_BASE_DIR"
 
@@ -40,6 +41,10 @@ require_root() {
   }
   [[ -n "$SOCAT_BIN" && -x "$SOCAT_BIN" ]] || {
     echo "socat not found. Install dependencies first."
+    exit 1
+  }
+  [[ -n "$UNSHARE_BIN" && -x "$UNSHARE_BIN" ]] || {
+    echo "unshare not found. Install util-linux first."
     exit 1
   }
 }
@@ -344,7 +349,7 @@ EOF
   reset_ns_firewall_allow_all "$ns"
   apply_udp_fallback_if_needed "$ns" "$idx"
 
-  local root_dir data_dir config_dir runtime_dir log_dir script_dir xdg_config_dir xdg_data_dir xdg_runtime_dir tmp_dir app_pidfile app_logfile ui_port
+  local root_dir data_dir config_dir runtime_dir log_dir script_dir xdg_config_dir xdg_data_dir xdg_runtime_dir tmp_dir state_dir cache_dir app_pidfile app_logfile ui_port
   root_dir="$(instance_dir "$idx")"
   data_dir="$root_dir/data"
   config_dir="$root_dir/config"
@@ -355,22 +360,35 @@ EOF
   xdg_data_dir="$root_dir/xdg-data"
   xdg_runtime_dir="$root_dir/xdg-runtime"
   tmp_dir="$root_dir/tmp"
+  state_dir="$root_dir/state"
+  cache_dir="$root_dir/cache"
   app_pidfile="$WORKDIR/myst_${idx}.pid"
   app_logfile="$log_dir/myst.log"
   ui_port=$((MYST_UI_BASE_PORT + idx))
 
   mkdir -p "$data_dir" "$config_dir" "$runtime_dir" "$log_dir" \
-    "$script_dir" "$xdg_config_dir" "$xdg_data_dir" "$xdg_runtime_dir" "$tmp_dir"
+    "$script_dir" "$xdg_config_dir" "$xdg_data_dir" "$xdg_runtime_dir" "$tmp_dir" \
+    "$state_dir" "$cache_dir"
 
   start_host_forwarder "$idx" "$ns"
 
   echo "[$idx] Starting Mysterium node in $root_dir"
-  ip netns exec "$ns" bash -lc "
+  ip netns exec "$ns" "$UNSHARE_BIN" --mount --propagation private bash -lc "
     export HOME='$root_dir'
     export XDG_CONFIG_HOME='$xdg_config_dir'
     export XDG_DATA_HOME='$xdg_data_dir'
     export XDG_RUNTIME_DIR='$xdg_runtime_dir'
+    export XDG_STATE_HOME='$state_dir'
+    export XDG_CACHE_HOME='$cache_dir'
     export TMPDIR='$tmp_dir'
+    export DBUS_SESSION_BUS_ADDRESS='/dev/null'
+    export MYSTERIUM_CONFIG_DIR='$config_dir'
+    export MYSTERIUM_DATA_DIR='$data_dir'
+    mkdir -p /root/.mysterium-node /root/.config /root/.local/share /root/.cache
+    mount --bind '$data_dir' /root/.mysterium-node
+    mount --bind '$config_dir' /root/.config
+    mount --bind '$xdg_data_dir' /root/.local/share
+    mount --bind '$cache_dir' /root/.cache
     cd '$root_dir'
     exec '$MYST_BIN' \
       --data-dir='$data_dir' \
