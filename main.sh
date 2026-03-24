@@ -19,8 +19,10 @@ EARNAPP_SCRIPT="$BASE_DIR/direct_earnapp.sh"
 TRAFF_SCRIPT="$BASE_DIR/direct_traff.sh"
 UR_SCRIPT="$BASE_DIR/direct_urnetwork.sh"
 INSTALL_SCRIPT="$BASE_DIR/install_hev-socks5-tunnel.sh"
+MYST_INSTALL_SCRIPT="$BASE_DIR/install_mysterium_node.sh"
 WIPTER_SCRIPT="$BASE_DIR/direct_wipter.sh"
 HONEYGAIN_SCRIPT="$BASE_DIR/direct_honeygain.sh"
+MYSTERIUM_SCRIPT="$BASE_DIR/direct_mysterium.sh"
 HONEYGAIN_ACCOUNTS_FILE="$BASE_DIR/honeygain_password.txt"
 
 PIDS=()
@@ -41,6 +43,7 @@ declare -A NS_INDEX=(
   [urns]=5
   [wipterns]=6
   [honeyns]=7
+  [mysterns]=8
 )
 
 CREATED_NETNS=()
@@ -165,7 +168,7 @@ ask_tokens() {
 }
 
 install_dependencies() {
-  sudo apt update && sudo apt install -y curl wget unzip iproute2 iptables uuid-runtime jq net-tools git
+  sudo apt update && sudo apt install -y curl wget unzip iproute2 iptables uuid-runtime jq net-tools git socat
 }
 
 install_earnapp() {
@@ -384,6 +387,18 @@ run_honeygain() {
   PIDS+=($!)
 }
 
+run_mysterium() {
+  if [[ ! -x "$MYSTERIUM_SCRIPT" ]]; then
+    echo "direct_mysterium.sh not found or not executable at $MYSTERIUM_SCRIPT"
+    return
+  fi
+  echo "Starting Mysterium node instances..."
+  sudo BASE_NS=mysterns VETH_PREFIX=myster WORKDIR=/tmp/mysterium_multi \
+    MYST_BASE_DIR="$BASE_DIR/myst" \
+    bash "$MYSTERIUM_SCRIPT" proxies.txt &
+  PIDS+=($!)
+}
+
 menu() {
   echo -e "\n====== GRAND NETWORK MANAGER (HARDENED / MULTI-NS) ======"
   echo "1) Run EarnApp"
@@ -398,6 +413,8 @@ menu() {
   echo "A) Clone & Run custom repo"
   echo "H) Run Honeygain"
   echo "W) Run Wipter"
+  echo "M) Run Mysterium Node"
+  echo "I) Install Mysterium Node"
   echo "0) Exit"
   echo "==============================================="
 }
@@ -425,6 +442,7 @@ while true; do
       run_castar
       run_honeygain
       run_wipter
+      run_mysterium
       echo "All services running (staggered safe mode). Press Ctrl+C to stop."
       wait
       ;;
@@ -436,6 +454,8 @@ while true; do
       ;;
     H|h) run_honeygain ; wait ;;
     W|w) run_wipter ; wait ;;
+    M|m) run_mysterium ; wait ;;
+    I|i) sudo bash "$MYST_INSTALL_SCRIPT" ; wait ;;
     0) cleanup ;;
     *) echo "Invalid option." ;;
   esac
