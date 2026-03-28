@@ -161,3 +161,26 @@ laws - Proxy provider policies
 ## ⭐ Contribute
 
 Pull requests and improvements are welcome. , Make Sure to Give Us a Stars if you found this useful
+
+## ExpressVPN netns batch launcher
+
+Use `direct_expressvpn_netns.sh` to launch ExpressVPN inside Linux namespaces (no Docker, no hev-socks5-tunnel).
+
+Example:
+
+```bash
+sudo ./direct_expressvpn_netns.sh \
+  --provider expressvpn \
+  --code 'YOUR_EXPRESSVPN_KEY' \
+  --batch-size 50 \
+  --app-cmd 'sleep infinity'
+```
+
+- Launches instances in batches (default: 50).
+- Waits for every namespace in a batch to reach `Connected` before moving to the next batch.
+- Optional subset selection with `--aliases alias1,alias2,...`.
+- Cleanup namespaces with:
+
+```bash
+sudo ./direct_expressvpn_netns.sh --cleanup
+```
