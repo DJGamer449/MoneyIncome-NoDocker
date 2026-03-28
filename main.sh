@@ -18,7 +18,7 @@ BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 EARNAPP_SCRIPT="$BASE_DIR/direct_earnapp.sh"
 TRAFF_SCRIPT="$BASE_DIR/direct_traff.sh"
 UR_SCRIPT="$BASE_DIR/direct_urnetwork.sh"
-INSTALL_SCRIPT="$BASE_DIR/install_hev-socks5-tunnel.sh"
+INSTALL_SCRIPT="$BASE_DIR/install_hev-socks5-tunnel.sh" # legacy installer (unused for ExpressVPN flow)
 MYST_INSTALL_SCRIPT="$BASE_DIR/install_mysterium_node.sh"
 WIPTER_SCRIPT="$BASE_DIR/direct_wipter.sh"
 HONEYGAIN_SCRIPT="$BASE_DIR/direct_honeygain.sh"
@@ -295,7 +295,7 @@ run_earnapp() {
   create_netns_with_veth "earnns" "earn" "${NS_INDEX[earnns]}"
   echo "Starting EarnApp..."
   sudo BASE_NS=earnns VETH_PREFIX=earn WORKDIR=/tmp/earnapp_multi \
-    bash "$EARNAPP_SCRIPT" proxies.txt &
+    bash "$EARNAPP_SCRIPT" &
   PIDS+=($!)
 }
 
@@ -307,7 +307,7 @@ run_traff() {
   sed -i "s|--token \".*\"|--token \"$TRAFF_TOKEN\"|g" "$RUNTIME"
   echo "Starting Traff..."
   sudo BASE_NS=traffns VETH_PREFIX=traff WORKDIR=/tmp/traff_multi \
-    bash "$RUNTIME" proxies.txt &
+    bash "$RUNTIME" &
   PIDS+=($!)
 }
 
@@ -342,7 +342,7 @@ run_urnetwork() {
     ./app/provider auth
   fi
   sudo BASE_NS=urns VETH_PREFIX=ur WORKDIR=/tmp/ur_multi \
-    bash "$UR_SCRIPT" proxies.txt &
+    bash "$UR_SCRIPT" &
   PIDS+=($!)
 }
 
@@ -399,6 +399,18 @@ run_mysterium() {
   PIDS+=($!)
 }
 
+
+verify_expressvpn() {
+  local ctl="$BASE_DIR/app/expressvpn/bin/expressvpnctl"
+  if [[ -x "$ctl" ]]; then
+    echo "ExpressVPN CLI found at: $ctl"
+    "$ctl" status || true
+  else
+    echo "ExpressVPN CLI not found at $ctl"
+    echo "Please place expressvpnctl under ./app/expressvpn/bin/"
+  fi
+}
+
 menu() {
   echo -e "\n====== GRAND NETWORK MANAGER (HARDENED / MULTI-NS) ======"
   echo "1) Run EarnApp"
@@ -406,7 +418,7 @@ menu() {
   echo "3) Run PacketStream"
   echo "4) Run UrNetwork"
   echo "5) Run Castar"
-  echo "6) Install hev-socks5-tunnel"
+  echo "6) Verify ExpressVPN CLI setup"
   echo "7) Install EarnApp Binary"
   echo "8) Install Dependencies"
   echo "9) Run ALL (Safe Mode)"
@@ -431,7 +443,7 @@ while true; do
     3) run_packetstream ; wait ;;
     4) run_urnetwork ; wait ;;
     5) run_castar ; wait ;;
-    6) sudo bash "$INSTALL_SCRIPT" ; wait ;;
+    6) verify_expressvpn ; wait ;;
     7) install_earnapp ; wait ;;
     8) install_dependencies ; wait ;;
     9)
