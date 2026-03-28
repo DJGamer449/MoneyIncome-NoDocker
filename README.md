@@ -9,12 +9,12 @@ A unified multi-service Linux network namespace manager for:
 -   PacketStream
 -   UrNetwork
 -   CastarSDK
--   hev-socks5-tunnel (heiher native binary)
+-   ExpressVPN (`app/expressvpn/bin/expressvpnctl`)
 -   Honeygain
 -   Mysterium Node
 
 Run multiple services simultaneously using isolated Linux network
-namespaces with proxy routing.
+namespaces with per-namespace ExpressVPN routing.
 
 ------------------------------------------------------------------------
 
@@ -23,7 +23,7 @@ namespaces with proxy routing.
 -   Run **EarnApp, TraffMonetizer, PacketStream, UrNetwork, CastarSDK, Honeygain** at the same time
 -   Run **Mysterium Node** instances with isolated per-proxy namespaces
 -   Each service runs in its own isolated netns
--   Automatic proxy routing via hev-socks5-tunnel
+-   Automatic per-namespace VPN routing via ExpressVPN
 -   Mysterium node connect UI is auto-forwarded from namespace-local `127.0.0.1:4449` to host `127.0.0.1:4450`, `4451`, `4452`, ...
 -   Persistent Mysterium data directories are auto-created under `myst/myst-1`, `myst/myst-2`, ...
 -   Each Mysterium instance now gets its own HOME/XDG/script directories so identities stay isolated across simultaneous logins
@@ -59,21 +59,7 @@ direct_earnapp.sh\
 direct_traff.sh\
 direct_mysterium.sh\
 install_mysterium_node.sh\
-install_hev-socks5-tunnel.sh\
-proxies.txt
-
-------------------------------------------------------------------------
-
-## 🔧 Proxy Format
-
-Create `proxies.txt`:
-
-protocol://user:pass@ip:port
-
-Example:
-
-http://user:pass@1.2.3.4:8080\
-socks5://user:pass@5.6.7.8:1080
+expressvpn_regions.sh
 
 ------------------------------------------------------------------------
 
@@ -89,9 +75,9 @@ sudo ./main.sh
 
 Select option:
 
-- `6` to install hev-socks5-tunnel
+- `6` for ExpressVPN info (install step removed)
 - `I` to install Mysterium Node
-- `M` to run Mysterium Node instances through the proxies in `proxies.txt`
+- `M` to run Mysterium Node instances
 
 ------------------------------------------------------------------------
 
@@ -110,8 +96,7 @@ Each service:
 
 -   Gets its own Linux network namespace
 -   Gets its own veth pair
--   Gets its own TUN device
--   Routes traffic through hev-socks5-tunnel
+-   Connects to a unique ExpressVPN region (cycled from `expressvpn_regions.sh`)
 -   Uses independent IP ranges
 
 Namespace prefixes:
@@ -147,7 +132,7 @@ The script will:
 This project is for educational and experimental purposes only.
 
 You are responsible for complying with: - Service Terms of Use - Local
-laws - Proxy provider policies
+laws - VPN provider policies
 
 ------------------------------------------------------------------------
 
