@@ -292,7 +292,7 @@ clone_and_run() {
 
 run_earnapp() {
   echo "Starting EarnApp..."
-  sudo BASE_NS=earnns VETH_PREFIX=earn WORKDIR=/tmp/earnapp_multi \
+  sudo BASE_DIR="$BASE_DIR" BASE_NS=earnns VETH_PREFIX=earn WORKDIR=/tmp/earnapp_multi \
     bash "$EARNAPP_SCRIPT" &
   PIDS+=($!)
 }
@@ -303,7 +303,7 @@ run_traff() {
   cp "$TRAFF_SCRIPT" "$RUNTIME"
   sed -i "s|--token \".*\"|--token \"$TRAFF_TOKEN\"|g" "$RUNTIME"
   echo "Starting Traff..."
-  sudo BASE_NS=traffns VETH_PREFIX=traff WORKDIR=/tmp/traff_multi \
+  sudo BASE_DIR="$BASE_DIR" BASE_NS=traffns VETH_PREFIX=traff WORKDIR=/tmp/traff_multi \
     bash "$RUNTIME" &
   PIDS+=($!)
 }
@@ -315,7 +315,7 @@ run_packetstream() {
   cp "$TRAFF_SCRIPT" "$RUNTIME"
   sed -i "s|APP_CMD=.*|APP_CMD=( env CID=\"$PS_TOKEN\" PS_IS_DOCKER=true ./app/psclient )|g" "$RUNTIME"
   echo "Starting PacketStream..."
-  sudo BASE_NS=psns VETH_PREFIX=ps WORKDIR=/tmp/ps_multi \
+  sudo BASE_DIR="$BASE_DIR" BASE_NS=psns VETH_PREFIX=ps WORKDIR=/tmp/ps_multi \
     bash "$RUNTIME" &
   PIDS+=($!)
 }
@@ -327,7 +327,7 @@ run_castar() {
   cp "$TRAFF_SCRIPT" "$RUNTIME"
   sed -i "s|APP_CMD=.*|APP_CMD=( ./app/CastarSDK -key=\"$CASTAR_KEY\" )|g" "$RUNTIME"
   echo "Starting Castar..."
-  sudo BASE_NS=castarns VETH_PREFIX=castar WORKDIR=/tmp/castar_multi \
+  sudo BASE_DIR="$BASE_DIR" BASE_NS=castarns VETH_PREFIX=castar WORKDIR=/tmp/castar_multi \
     bash "$RUNTIME" &
   PIDS+=($!)
 }
@@ -337,7 +337,7 @@ run_urnetwork() {
   if [[ ! -f "$HOME/.urnetwork/jwt" ]]; then
     ./app/provider auth
   fi
-  sudo BASE_NS=urns VETH_PREFIX=ur WORKDIR=/tmp/ur_multi \
+  sudo BASE_DIR="$BASE_DIR" BASE_NS=urns VETH_PREFIX=ur WORKDIR=/tmp/ur_multi \
     bash "$UR_SCRIPT" &
   PIDS+=($!)
 }

@@ -5,7 +5,7 @@ APP_CMD=( ./app/provider provide )
 BASE_NS="${BASE_NS:-urns}"
 VETH_PREFIX="${VETH_PREFIX:-ur}"
 WORKDIR="${WORKDIR:-/tmp/ur_clones}"
-BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BASE_DIR="${BASE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 EXPRESSVPNCTL="${EXPRESSVPNCTL:-$BASE_DIR/app/expressvpn/bin/expressvpnctl}"
 
 mkdir -p "$WORKDIR"

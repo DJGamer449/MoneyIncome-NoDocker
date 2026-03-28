@@ -4,7 +4,7 @@ set -euo pipefail
 BASE_NS="${BASE_NS:-earnns}"
 VETH_PREFIX="${VETH_PREFIX:-earn}"
 WORKDIR="${WORKDIR:-/tmp/earnapp_clones}"
-BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BASE_DIR="${BASE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 EXPRESSVPNCTL="${EXPRESSVPNCTL:-$BASE_DIR/app/expressvpn/bin/expressvpnctl}"
 
 mkdir -p "$WORKDIR"

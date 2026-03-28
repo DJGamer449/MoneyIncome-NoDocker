@@ -5,7 +5,7 @@ APP_CMD=( ./app/cli start accept --token "nblQB8tNIf6aj1Hs51/SJXqflMy0x1jPnsT6kV
 BASE_NS="${BASE_NS:-traffns}"
 VETH_PREFIX="${VETH_PREFIX:-traff}"
 WORKDIR="${WORKDIR:-/tmp/traff_multi}"
-BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BASE_DIR="${BASE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 EXPRESSVPNCTL="${EXPRESSVPNCTL:-$BASE_DIR/app/expressvpn/bin/expressvpnctl}"
 
 mkdir -p "$WORKDIR"
