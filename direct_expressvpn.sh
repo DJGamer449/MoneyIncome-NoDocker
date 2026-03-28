@@ -84,7 +84,9 @@ setup_nat_once() {
 }
 
 create_ns_with_veth() {
-  local idx="$1" ns="${BASE_NS}${idx}" host_if="${VETH_PREFIX}${idx}h" ns_if="${VETH_PREFIX}${idx}n"
+  local idx="${1:-}"
+  [[ -n "$idx" ]] || { echo "create_ns_with_veth: missing instance index" >&2; return 1; }
+  local ns="${BASE_NS}${idx}" host_if="${VETH_PREFIX}${idx}h" ns_if="${VETH_PREFIX}${idx}n"
   local b=$(( (idx-1)/254 + 1 )) c=$(( (idx-1)%254 + 1 ))
   ip netns add "$ns" 2>/dev/null || true
   ip link show "$host_if" >/dev/null 2>&1 || ip link add "$host_if" type veth peer name "$ns_if"
