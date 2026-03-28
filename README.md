@@ -9,7 +9,7 @@ A unified multi-service Linux network namespace manager for:
 -   PacketStream
 -   UrNetwork
 -   CastarSDK
--   hev-socks5-tunnel (heiher native binary)
+-   ExpressVPN multi-instance via Linux network namespaces
 -   Honeygain
 -   Mysterium Node
 
@@ -23,7 +23,7 @@ namespaces with proxy routing.
 -   Run **EarnApp, TraffMonetizer, PacketStream, UrNetwork, CastarSDK, Honeygain** at the same time
 -   Run **Mysterium Node** instances with isolated per-proxy namespaces
 -   Each service runs in its own isolated netns
--   Automatic proxy routing via hev-socks5-tunnel
+-   Optional ExpressVPN namespace launcher with batched startup
 -   Mysterium node connect UI is auto-forwarded from namespace-local `127.0.0.1:4449` to host `127.0.0.1:4450`, `4451`, `4452`, ...
 -   Persistent Mysterium data directories are auto-created under `myst/myst-1`, `myst/myst-2`, ...
 -   Each Mysterium instance now gets its own HOME/XDG/script directories so identities stay isolated across simultaneous logins
@@ -59,7 +59,7 @@ direct_earnapp.sh\
 direct_traff.sh\
 direct_mysterium.sh\
 install_mysterium_node.sh\
-install_hev-socks5-tunnel.sh\
+direct_expressvpn.sh\
 proxies.txt
 
 ------------------------------------------------------------------------
@@ -89,7 +89,7 @@ sudo ./main.sh
 
 Select option:
 
-- `6` to install hev-socks5-tunnel
+- `6` to run ExpressVPN in netns batches
 - `I` to install Mysterium Node
 - `M` to run Mysterium Node instances through the proxies in `proxies.txt`
 
@@ -98,6 +98,13 @@ Select option:
 ## Usage
 
 sudo ./main.sh
+
+For ExpressVPN netns mode (menu option `6`), make sure `app/expressvpn/expressvpnctl` is present and export your key before starting:
+
+```bash
+export EXPRESSVPN_CODE="YOUR_EXPRESSVPN_ACTIVATION_CODE"
+sudo ./direct_expressvpn.sh start
+```
 
 <img width="390" height="324" alt="image" src="https://github.com/user-attachments/assets/5591b69d-e06d-4577-a35f-c5bdb6be5a79" />
 
@@ -111,7 +118,7 @@ Each service:
 -   Gets its own Linux network namespace
 -   Gets its own veth pair
 -   Gets its own TUN device
--   Routes traffic through hev-socks5-tunnel
+-   Routes traffic through configured proxy/VPN path per namespace
 -   Uses independent IP ranges
 
 Namespace prefixes:
