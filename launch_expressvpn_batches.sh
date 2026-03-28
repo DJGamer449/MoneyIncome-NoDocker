@@ -6,6 +6,14 @@ IMAGE="${IMAGE:-misioslav/expressvpn}"
 START_SCRIPT_IN_CONTAINER="${START_SCRIPT_IN_CONTAINER:-/app/expressvpn_start_minimal.sh}"
 CTL_IN_CONTAINER="${CTL_IN_CONTAINER:-/app/expressvpn/bin/expressvpnctl}"
 
+if [[ -z "${CONTAINER_COUNT:-}" ]]; then
+  read -r -p "How many containers do you want to run? " CONTAINER_COUNT
+fi
+if ! [[ "${CONTAINER_COUNT}" =~ ^[0-9]+$ ]] || (( CONTAINER_COUNT < 1 )); then
+  echo "CONTAINER_COUNT must be a positive integer"
+  exit 1
+fi
+
 if [[ -z "${CODE:-}" ]]; then
   read -r -s -p "Enter ExpressVPN activation key (CODE): " CODE
   echo
@@ -91,10 +99,12 @@ wait_for_connected_batch() {
 start_batch() {
   local start_idx="$1"
   local end_idx="$2"
+  local alias_total="$3"
   local batch_names=()
 
   for i in $(seq "${start_idx}" "${end_idx}"); do
-    local alias="${aliases[$((i - 1))]}"
+    local alias_idx=$(( (i - 1) % alias_total ))
+    local alias="${aliases[$alias_idx]}"
     local name="expressvpn-${i}"
 
     echo "Starting ${name} (${alias})"
@@ -117,7 +127,8 @@ start_batch() {
   wait_for_connected_batch "${batch_names[@]}"
 }
 
-total="${#aliases[@]}"
+total="${CONTAINER_COUNT}"
+alias_total="${#aliases[@]}"
 current=1
 while (( current <= total )); do
   batch_end=$((current + BATCH_SIZE - 1))
@@ -126,7 +137,7 @@ while (( current <= total )); do
   fi
 
   echo "==== Batch ${current}-${batch_end} / ${total} ===="
-  start_batch "${current}" "${batch_end}"
+  start_batch "${current}" "${batch_end}" "${alias_total}"
   current=$((batch_end + 1))
 done
 

@@ -31,6 +31,8 @@ EXITING=0
 TRAFF_TOKEN=""
 PS_TOKEN=""
 CASTAR_KEY=""
+CODE=""
+SERVER="smart"
 WIPTER_EMAIL=""
 WIPTER_PASSWORD=""
 HONEYGAIN_ACCOUNTS=()
@@ -158,6 +160,13 @@ trap cleanup INT TERM
 
 ask_tokens() {
   echo "========== TOKEN SETUP =========="
+  while [[ -z "${CODE:-}" ]]; do
+    read -rsp "Enter ExpressVPN activation key (CODE): " CODE
+    echo
+    [[ -n "${CODE:-}" ]] || echo "ExpressVPN CODE is required."
+  done
+  read -rp "Enter ExpressVPN region/server alias [smart]: " SERVER
+  SERVER="${SERVER:-smart}"
   read -rp "Enter Traff token (or leave blank): " TRAFF_TOKEN
   read -rp "Enter PacketStream CID token (or leave blank): " PS_TOKEN
   read -rp "Enter Castar Key (or leave blank): " CASTAR_KEY
@@ -294,7 +303,7 @@ clone_and_run() {
 
 run_earnapp() {
   echo "Starting EarnApp through ExpressVPN..."
-  sudo BASE_NS=earnns VETH_PREFIX=earn WORKDIR=/tmp/earnapp_multi SERVER="${SERVER:-smart}" \
+  sudo CODE="$CODE" BASE_NS=earnns VETH_PREFIX=earn WORKDIR=/tmp/earnapp_multi SERVER="${SERVER:-smart}" \
     bash "$EARNAPP_SCRIPT" "${EARNAPP_INSTANCES:-1}" &
   PIDS+=($!)
 }
@@ -302,7 +311,7 @@ run_earnapp() {
 run_traff() {
   if [[ -z "$TRAFF_TOKEN" ]]; then echo "Traff token not set."; return; fi
   echo "Starting Traff through ExpressVPN..."
-  sudo TRAFF_TOKEN="$TRAFF_TOKEN" BASE_NS=traffns VETH_PREFIX=traff WORKDIR=/tmp/traff_multi SERVER="${SERVER:-smart}" \
+  sudo CODE="$CODE" TRAFF_TOKEN="$TRAFF_TOKEN" BASE_NS=traffns VETH_PREFIX=traff WORKDIR=/tmp/traff_multi SERVER="${SERVER:-smart}" \
     bash "$TRAFF_SCRIPT" "${TRAFF_INSTANCES:-1}" &
   PIDS+=($!)
 }
@@ -310,7 +319,7 @@ run_traff() {
 run_packetstream() {
   if [[ -z "$PS_TOKEN" ]]; then echo "PacketStream token not set."; return; fi
   echo "Starting PacketStream through ExpressVPN..."
-  sudo APP_NAME=packetstream BASE_NS=psns VETH_PREFIX=ps WORKDIR=/tmp/ps_multi SERVER="${SERVER:-smart}" \
+  sudo CODE="$CODE" APP_NAME=packetstream BASE_NS=psns VETH_PREFIX=ps WORKDIR=/tmp/ps_multi SERVER="${SERVER:-smart}" \
     APP_LAUNCH_CMD="env CID='$PS_TOKEN' PS_IS_DOCKER=true ./app/psclient" \
     bash "$BASE_DIR/lib/expressvpn_namespace_runner.sh" "${PS_INSTANCES:-1}" &
   PIDS+=($!)
@@ -319,7 +328,7 @@ run_packetstream() {
 run_castar() {
   if [[ -z "$CASTAR_KEY" ]]; then echo "Castar key not set."; return; fi
   echo "Starting Castar through ExpressVPN..."
-  sudo CASTAR_KEY="$CASTAR_KEY" BASE_NS=castarns VETH_PREFIX=castar WORKDIR=/tmp/castar_multi SERVER="${SERVER:-smart}" \
+  sudo CODE="$CODE" CASTAR_KEY="$CASTAR_KEY" BASE_NS=castarns VETH_PREFIX=castar WORKDIR=/tmp/castar_multi SERVER="${SERVER:-smart}" \
     bash "$CASTAR_SCRIPT" "${CASTAR_INSTANCES:-1}" &
   PIDS+=($!)
 }
@@ -329,7 +338,7 @@ run_urnetwork() {
   if [[ ! -f "$HOME/.urnetwork/jwt" ]]; then
     ./app/provider auth
   fi
-  sudo BASE_NS=urns VETH_PREFIX=ur WORKDIR=/tmp/ur_multi SERVER="${SERVER:-smart}" \
+  sudo CODE="$CODE" BASE_NS=urns VETH_PREFIX=ur WORKDIR=/tmp/ur_multi SERVER="${SERVER:-smart}" \
     bash "$UR_SCRIPT" "${UR_INSTANCES:-1}" &
   PIDS+=($!)
 }
@@ -345,7 +354,7 @@ run_wipter() {
     return
   fi
   echo "Starting Wipter through ExpressVPN..."
-  sudo BASE_NS=wipterns VETH_PREFIX=wipter WORKDIR=/tmp/wipter_multi SERVER="${SERVER:-smart}" WIPTER_EMAIL="$WIPTER_EMAIL" WIPTER_PASSWORD="$WIPTER_PASSWORD" \
+  sudo CODE="$CODE" BASE_NS=wipterns VETH_PREFIX=wipter WORKDIR=/tmp/wipter_multi SERVER="${SERVER:-smart}" WIPTER_EMAIL="$WIPTER_EMAIL" WIPTER_PASSWORD="$WIPTER_PASSWORD" \
     bash "$WIPTER_SCRIPT" "${WIPTER_INSTANCES:-1}" &
   PIDS+=($!)
 }
@@ -370,7 +379,7 @@ run_honeygain() {
   primary_email="${HONEYGAIN_ACCOUNTS[0]%%|*}"
   primary_password="${HONEYGAIN_ACCOUNTS[0]#*|}"
   echo "Starting Honeygain with primary account ${primary_email} through ExpressVPN..."
-  sudo BASE_NS=honeyns VETH_PREFIX=honey WORKDIR=/tmp/honeygain_multi SERVER="${SERVER:-smart}" HONEYGAIN_EMAIL="$primary_email" HONEYGAIN_PASSWORD="$primary_password" \
+  sudo CODE="$CODE" BASE_NS=honeyns VETH_PREFIX=honey WORKDIR=/tmp/honeygain_multi SERVER="${SERVER:-smart}" HONEYGAIN_EMAIL="$primary_email" HONEYGAIN_PASSWORD="$primary_password" \
     bash "$HONEYGAIN_SCRIPT" "${HONEYGAIN_INSTANCES:-1}" &
   PIDS+=($!)
 }
@@ -381,7 +390,7 @@ run_mysterium() {
     return
   fi
   echo "Starting Mysterium node instances through ExpressVPN..."
-  sudo BASE_NS=mysterns VETH_PREFIX=myster WORKDIR=/tmp/mysterium_multi SERVER="${SERVER:-smart}" \
+  sudo CODE="$CODE" BASE_NS=mysterns VETH_PREFIX=myster WORKDIR=/tmp/mysterium_multi SERVER="${SERVER:-smart}" \
     bash "$MYSTERIUM_SCRIPT" "${MYSTERIUM_INSTANCES:-1}" &
   PIDS+=($!)
 }
