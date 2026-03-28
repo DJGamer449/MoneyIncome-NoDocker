@@ -9,6 +9,7 @@ WORKDIR="${WORKDIR:-/tmp/expressvpn_multi}"
 INSTANCES="${INSTANCES:-}"
 CODE="${CODE:-}"
 EXPRESSVPNCTL="${EXPRESSVPNCTL:-$(cd "$(dirname "$0")" && pwd)/app/expressvpn/bin/expressvpnctl}"
+EXPRESSVPN_DAEMON="${EXPRESSVPN_DAEMON:-$(cd "$(dirname "$0")" && pwd)/app/expressvpn/bin/expressvpn-daemon}"
 
 mkdir -p "$WORKDIR"
 
@@ -57,12 +58,20 @@ argentina turkey norway hungary
 require_root() {
   [[ $EUID -eq 0 ]] || { echo "Run as root"; exit 1; }
   [[ -x "$EXPRESSVPNCTL" ]] || command -v expressvpnctl >/dev/null 2>&1 || { echo "expressvpnctl not found at $EXPRESSVPNCTL"; exit 1; }
+  [[ -x "$EXPRESSVPN_DAEMON" ]] || command -v expressvpn-daemon >/dev/null 2>&1 || { echo "expressvpn-daemon not found at $EXPRESSVPN_DAEMON"; exit 1; }
 }
 ctl_cmd() {
   if [[ -x "$EXPRESSVPNCTL" ]]; then
     printf '%q' "$EXPRESSVPNCTL"
   else
     printf '%s' "expressvpnctl"
+  fi
+}
+daemon_cmd() {
+  if [[ -x "$EXPRESSVPN_DAEMON" ]]; then
+    printf '%q' "$EXPRESSVPN_DAEMON"
+  else
+    printf '%s' "expressvpn-daemon"
   fi
 }
 
@@ -102,27 +111,64 @@ create_ns_with_veth() {
   echo "$ns"
 }
 
-connect_expressvpn() {
-  local ns="$1" idx="$2" region="$3" ctl
+start_instance_supervisor() {
+  local ns="$1" idx="$2" region="$3" ctl daemon
   ctl="$(ctl_cmd)"
+  daemon="$(daemon_cmd)"
   local inst_home="$WORKDIR/inst_${idx}"
+  local inst_run="$inst_home/var_run_expressvpn"
+  local inst_lib="$inst_home/var_lib_expressvpn"
+  local app_cmd_b64
+
   mkdir -p "$inst_home"
+  mkdir -p "$inst_run" "$inst_lib"
   printf '%s' "$CODE" >"$inst_home/token"
+  app_cmd_b64="$(printf '%s' "$APP_CMD_STR" | base64 -w0)"
 
-  ip netns exec "$ns" bash -lc "export HOME='$inst_home'; $ctl login '$inst_home/token' >/tmp/evpn_login_${idx}.log 2>&1 || true"
-  ip netns exec "$ns" bash -lc "export HOME='$inst_home'; $ctl set networklock false >/tmp/evpn_netlock_${idx}.log 2>&1 || true"
-  ip netns exec "$ns" bash -lc "export HOME='$inst_home'; $ctl set region '$region' >/tmp/evpn_region_${idx}.log 2>&1 || true"
-  ip netns exec "$ns" bash -lc "export HOME='$inst_home'; $ctl connect '$region' >/tmp/evpn_connect_${idx}.log 2>&1"
-}
+  ip netns exec "$ns" unshare -m env \
+    INST_HOME="$inst_home" \
+    INST_RUN="$inst_run" \
+    INST_LIB="$inst_lib" \
+    APP_CMD_B64="$app_cmd_b64" \
+    REGION="$region" \
+    CTL="$ctl" \
+    DAEMON="$daemon" \
+    INDEX="$idx" \
+    bash -lc '
+      set -euo pipefail
+      trap "kill ${daemon_pid:-0} ${app_pid:-0} 2>/dev/null || true; umount /var/run/expressvpn 2>/dev/null || true; umount /var/lib/expressvpn 2>/dev/null || true" EXIT
+      groupadd -f expressvpn >/dev/null 2>&1 || true
+      mkdir -p /var/run/expressvpn /var/lib/expressvpn "$INST_HOME"
+      mount --bind "$INST_RUN" /var/run/expressvpn
+      mount --bind "$INST_LIB" /var/lib/expressvpn
+      export HOME="$INST_HOME"
+      export XDG_RUNTIME_DIR="$INST_HOME/runtime"
+      mkdir -p "$XDG_RUNTIME_DIR"
 
-start_app() {
-  local ns="$1" idx="$2" inst_home="$WORKDIR/inst_${idx}"
-  ip netns exec "$ns" bash -lc "cd '$(pwd)'; export HOME='$inst_home'; $APP_CMD_STR" >"$WORKDIR/app_${idx}.log" 2>&1 &
-  echo $! >"$WORKDIR/app_${idx}.pid"
+      "$DAEMON" >"$INST_HOME/daemon.log" 2>&1 &
+      daemon_pid=$!
+      sleep 2
+
+      "$CTL" login "$INST_HOME/token" >"$INST_HOME/login.log" 2>&1 || true
+      "$CTL" background enable >/dev/null 2>&1 || true
+      "$CTL" set networklock false >"$INST_HOME/networklock.log" 2>&1 || true
+      "$CTL" set region "$REGION" >"$INST_HOME/region.log" 2>&1 || true
+      "$CTL" connect "$REGION" >"$INST_HOME/connect.log" 2>&1
+      "$CTL" status >"$INST_HOME/status.log" 2>&1 || true
+
+      cd "'"$(pwd)"'"
+      app_cmd="$(printf "%s" "$APP_CMD_B64" | base64 -d)"
+      bash -lc "$app_cmd" >"'"$WORKDIR"'/app_${INDEX}.log" 2>&1 &
+      app_pid=$!
+      echo "$app_pid" >"'"$WORKDIR"'/app_${INDEX}.pid"
+      wait "$app_pid"
+    ' &
+  echo $! >"$WORKDIR/supervisor_${idx}.pid"
 }
 
 cleanup() {
   for f in "$WORKDIR"/app_*.pid; do [[ -f "$f" ]] && kill "$(cat "$f")" 2>/dev/null || true; done
+  for f in "$WORKDIR"/supervisor_*.pid; do [[ -f "$f" ]] && kill "$(cat "$f")" 2>/dev/null || true; done
   for ns in $(ip netns list | awk '{print $1}' | grep -E "^${BASE_NS}[0-9]+$" || true); do
     local idx="${ns#${BASE_NS}}"
     ip link del "${VETH_PREFIX}${idx}h" 2>/dev/null || true
@@ -148,8 +194,7 @@ main() {
     ns="$(create_ns_with_veth "$i")"
     region="${regions[$(( (i-1) % ${#regions[@]} ))]}"
     echo "[$i] ${APP_NAME}: namespace=$ns region=$region"
-    connect_expressvpn "$ns" "$i" "$region"
-    start_app "$ns" "$i"
+    start_instance_supervisor "$ns" "$i" "$region"
   done
 
   echo "Started ${INSTANCES} ${APP_NAME} instance(s) with ExpressVPN."
