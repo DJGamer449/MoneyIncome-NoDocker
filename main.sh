@@ -302,12 +302,9 @@ run_earnapp() {
 run_traff() {
   if [[ -z "$TRAFF_TOKEN" ]]; then echo "Traff token not set."; return; fi
   create_netns_with_veth "traffns" "traff" "${NS_INDEX[traffns]}"
-  local RUNTIME="/tmp/traff_runtime.sh"
-  cp "$TRAFF_SCRIPT" "$RUNTIME"
-  sed -i "s|--token \".*\"|--token \"$TRAFF_TOKEN\"|g" "$RUNTIME"
   echo "Starting Traff..."
-  sudo BASE_NS=traffns VETH_PREFIX=traff WORKDIR=/tmp/traff_multi \
-    bash "$RUNTIME" &
+  sudo BASE_NS=traffns VETH_PREFIX=traff WORKDIR=/tmp/traff_multi TRAFF_TOKEN="$TRAFF_TOKEN" \
+    bash "$TRAFF_SCRIPT" &
   PIDS+=($!)
 }
 
