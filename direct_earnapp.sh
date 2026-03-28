@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 BASE_NS="${BASE_NS:-earnns}"
 VETH_PREFIX="${VETH_PREFIX:-earn}"
 WORKDIR="${WORKDIR:-/tmp/earnapp_expressvpn}"
-EXPRESSVPNCTL="${EXPRESSVPNCTL:-$(pwd)/app/expressvpn/bin/expressvpnctl}"
+EXPRESSVPNCTL="${EXPRESSVPNCTL:-$SCRIPT_DIR/app/expressvpn/bin/expressvpnctl}"
 NS_DNS_LIST="${NS_DNS_LIST:-1.1.1.1 8.8.8.8}"
 mkdir -p "$WORKDIR"
 
@@ -66,7 +68,7 @@ start_expressvpn_in_ns() {
   local ns="$1" region="$2" idx="$3"
   local log="$WORKDIR/expressvpn_${idx}.log" pidfile="$WORKDIR/expressvpn_${idx}.pid"
   ip netns exec "$ns" bash -lc "
-    export PATH='$(pwd)/app/expressvpn/bin':\$PATH
+    export PATH='$SCRIPT_DIR/app/expressvpn/bin':\$PATH
     printf '%s' '$EXPRESSVPN_KEY' > '$WORKDIR/code_${idx}.txt'
     '$EXPRESSVPNCTL' login '$WORKDIR/code_${idx}.txt' >/dev/null 2>&1 || true
     '$EXPRESSVPNCTL' set networklock false >/dev/null 2>&1 || true
