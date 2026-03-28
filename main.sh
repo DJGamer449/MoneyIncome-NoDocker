@@ -292,10 +292,9 @@ clone_and_run() {
 }
 
 run_earnapp() {
-  create_netns_with_veth "earnns" "earn" "${NS_INDEX[earnns]}"
-  echo "Starting EarnApp..."
-  sudo BASE_NS=earnns VETH_PREFIX=earn WORKDIR=/tmp/earnapp_multi \
-    bash "$EARNAPP_SCRIPT" proxies.txt &
+  echo "Starting EarnApp through ExpressVPN..."
+  sudo BASE_NS=earnns VETH_PREFIX=earn WORKDIR=/tmp/earnapp_multi SERVER="${SERVER:-smart}" \
+    bash "$EARNAPP_SCRIPT" "${EARNAPP_INSTANCES:-1}" &
   PIDS+=($!)
 }
 
