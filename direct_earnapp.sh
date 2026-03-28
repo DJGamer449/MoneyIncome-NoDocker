@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Run multiple EarnApp instances in net namespaces while host traffic is already on ExpressVPN.
-# No hev-socks5-tunnel/proxy routing is used.
+# ExpressVPN-only routing (no proxy tunnel dependency).
 
 INSTANCE_COUNT="${1:-1}"
 BASE_NS="${BASE_NS:-earnns}"
