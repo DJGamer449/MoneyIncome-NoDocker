@@ -12,6 +12,8 @@ CREATED_NETNS=()
 CREATED_SUBNETS=()
 EXITING=0
 NS_COUNTER=20
+LOG_DIR="/tmp/moneyincome-expressvpn"
+EXPRESSVPN_TOKEN_FILE=""
 
 TRAFF_TOKEN=""
 PS_TOKEN=""
@@ -69,6 +71,10 @@ cleanup() {
 }
 trap cleanup INT TERM
 
+init_runtime() {
+  sudo mkdir -p "$LOG_DIR"
+}
+
 install_dependencies() {
   sudo apt update
   sudo apt install -y curl wget unzip iproute2 iptables jq net-tools
@@ -88,10 +94,14 @@ ask_expressvpn_setup() {
     exit 1
   }
 
-  read -rp "Enter ExpressVPN activation key/token file path (required): " EXPRESSVPN_TOKEN
+  read -rp "Enter ExpressVPN activation key/token (required): " EXPRESSVPN_TOKEN
   while [[ -z "$EXPRESSVPN_TOKEN" ]]; do
-    read -rp "ExpressVPN key cannot be empty. Enter key/token file path: " EXPRESSVPN_TOKEN
+    read -rp "ExpressVPN key cannot be empty. Enter ExpressVPN key/token: " EXPRESSVPN_TOKEN
   done
+
+  EXPRESSVPN_TOKEN_FILE="$LOG_DIR/expressvpn_token.txt"
+  printf '%s\n' "$EXPRESSVPN_TOKEN" | sudo tee "$EXPRESSVPN_TOKEN_FILE" >/dev/null
+  sudo chmod 600 "$EXPRESSVPN_TOKEN_FILE"
 
   read -rp "How many instances do you want to run per app? " INSTANCE_COUNT
   while ! [[ "$INSTANCE_COUNT" =~ ^[1-9][0-9]*$ ]]; do
@@ -111,6 +121,9 @@ create_netns_with_veth() {
   local idx="$2"
 
   echo "Creating namespace $ns (idx=$idx)..."
+  if sudo ip netns list | awk '{print $1}' | grep -qw "$ns"; then
+    sudo ip netns delete "$ns" 2>/dev/null || true
+  fi
   sudo ip netns add "$ns"
   CREATED_NETNS+=("$ns")
 
@@ -144,11 +157,11 @@ connect_expressvpn_in_ns() {
   echo "[$ns] Logging in and connecting ExpressVPN region=$region"
   sudo ip netns exec "$ns" bash -lc "
     set -e
-    '$EXPRESSVPNCTL' login '$EXPRESSVPN_TOKEN' >/tmp/${ns}_vpn_login.log 2>&1 || true
-    '$EXPRESSVPNCTL' set networklock false >/tmp/${ns}_vpn_networklock.log 2>&1 || true
-    '$EXPRESSVPNCTL' set region '$region' >/tmp/${ns}_vpn_region.log 2>&1
-    '$EXPRESSVPNCTL' connect '$region' >/tmp/${ns}_vpn_connect.log 2>&1
-    '$EXPRESSVPNCTL' status >/tmp/${ns}_vpn_status.log 2>&1
+    '$EXPRESSVPNCTL' login '$EXPRESSVPN_TOKEN_FILE' >'$LOG_DIR'/${ns}_vpn_login.log 2>&1 || true
+    '$EXPRESSVPNCTL' set networklock false >'$LOG_DIR'/${ns}_vpn_networklock.log 2>&1 || true
+    '$EXPRESSVPNCTL' set region '$region' >'$LOG_DIR'/${ns}_vpn_region.log 2>&1
+    '$EXPRESSVPNCTL' connect '$region' >'$LOG_DIR'/${ns}_vpn_connect.log 2>&1
+    '$EXPRESSVPNCTL' status >'$LOG_DIR'/${ns}_vpn_status.log 2>&1
   "
 }
 
@@ -157,7 +170,7 @@ start_app_in_ns() {
   local app_name="$2"
   local cmd="$3"
   echo "[$ns] Starting $app_name"
-  sudo ip netns exec "$ns" bash -lc "nohup $cmd >/tmp/${ns}_${app_name}.log 2>&1 & echo \$!" | {
+  sudo ip netns exec "$ns" bash -lc "cd '$BASE_DIR' && nohup $cmd >'$LOG_DIR'/${ns}_${app_name}.log 2>&1 & echo \$!" | {
     read -r pid
     [[ -n "${pid:-}" ]] && PIDS+=("$pid")
   }
@@ -179,6 +192,7 @@ run_app_instances() {
     create_netns_with_veth "$ns" "$idx"
     connect_expressvpn_in_ns "$ns" "$region"
     start_app_in_ns "$ns" "$app_key" "$cmd"
+    echo "[$ns] logs: $LOG_DIR/${ns}_${app_key}.log | $LOG_DIR/${ns}_vpn_status.log"
   done
 
   echo "$app_name started with $INSTANCE_COUNT instance(s)."
@@ -230,6 +244,7 @@ menu() {
   echo "======================================================="
 }
 
+init_runtime
 install_dependencies
 ask_tokens
 ask_expressvpn_setup
