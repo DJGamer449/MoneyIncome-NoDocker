@@ -59,7 +59,7 @@ direct_earnapp.sh\
 direct_traff.sh\
 direct_mysterium.sh\
 install_mysterium_node.sh\
-install_hev-socks5-tunnel.sh\
+install_expressvpn.sh\
 proxies.txt
 
 ------------------------------------------------------------------------
@@ -89,7 +89,7 @@ sudo ./main.sh
 
 Select option:
 
-- `6` to install hev-socks5-tunnel
+- `6` to install ExpressVPN runtime files
 - `I` to install Mysterium Node
 - `M` to run Mysterium Node instances through the proxies in `proxies.txt`
 

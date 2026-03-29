@@ -18,7 +18,7 @@ BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 EARNAPP_SCRIPT="$BASE_DIR/direct_earnapp.sh"
 TRAFF_SCRIPT="$BASE_DIR/direct_traff.sh"
 UR_SCRIPT="$BASE_DIR/direct_urnetwork.sh"
-INSTALL_SCRIPT="$BASE_DIR/install_hev-socks5-tunnel.sh"
+INSTALL_SCRIPT="$BASE_DIR/install_expressvpn.sh"
 MYST_INSTALL_SCRIPT="$BASE_DIR/install_mysterium_node.sh"
 WIPTER_SCRIPT="$BASE_DIR/direct_wipter.sh"
 HONEYGAIN_SCRIPT="$BASE_DIR/direct_honeygain.sh"
@@ -33,6 +33,8 @@ CASTAR_KEY=""
 WIPTER_EMAIL=""
 WIPTER_PASSWORD=""
 HONEYGAIN_ACCOUNTS=()
+EXPRESSVPN_CODE="${CODE:-}"
+EXPRESSVPN_INSTANCE_COUNT="${INSTANCE_COUNT:-}"
 
 # maps ns name -> numeric index used for subnet allocation
 declare -A NS_INDEX=(
@@ -164,6 +166,14 @@ ask_tokens() {
   read -rp "Enter Wipter Email (or leave blank): " WIPTER_EMAIL
   read -rsp "Enter Wipter Password (hidden, leave blank to skip): " WIPTER_PASSWORD
   echo
+  echo "------ ExpressVPN ------"
+  if [[ -z "${EXPRESSVPN_CODE:-}" ]]; then
+    read -rsp "Enter ExpressVPN activation key: " EXPRESSVPN_CODE
+    echo
+  fi
+  if [[ -z "${EXPRESSVPN_INSTANCE_COUNT:-}" ]]; then
+    read -rp "How many ExpressVPN instances to run per app: " EXPRESSVPN_INSTANCE_COUNT
+  fi
   echo "================================="
 }
 
@@ -306,8 +316,8 @@ run_traff() {
   cp "$TRAFF_SCRIPT" "$RUNTIME"
   sed -i "s|--token \".*\"|--token \"$TRAFF_TOKEN\"|g" "$RUNTIME"
   echo "Starting Traff..."
-  sudo BASE_NS=traffns VETH_PREFIX=traff WORKDIR=/tmp/traff_multi \
-    bash "$RUNTIME" proxies.txt &
+  sudo BASE_NS=traffns VETH_PREFIX=traff WORKDIR=/tmp/traff_multi CODE="$EXPRESSVPN_CODE" INSTANCE_COUNT="$EXPRESSVPN_INSTANCE_COUNT" \
+    bash "$RUNTIME" &
   PIDS+=($!)
 }
 
@@ -318,8 +328,8 @@ run_packetstream() {
   cp "$TRAFF_SCRIPT" "$RUNTIME"
   sed -i "s|APP_CMD=.*|APP_CMD=( env CID=\"$PS_TOKEN\" PS_IS_DOCKER=true ./app/psclient )|g" "$RUNTIME"
   echo "Starting PacketStream..."
-  sudo BASE_NS=psns VETH_PREFIX=ps WORKDIR=/tmp/ps_multi \
-    bash "$RUNTIME" proxies.txt &
+  sudo BASE_NS=psns VETH_PREFIX=ps WORKDIR=/tmp/ps_multi CODE="$EXPRESSVPN_CODE" INSTANCE_COUNT="$EXPRESSVPN_INSTANCE_COUNT" \
+    bash "$RUNTIME" &
   PIDS+=($!)
 }
 
@@ -330,8 +340,8 @@ run_castar() {
   cp "$TRAFF_SCRIPT" "$RUNTIME"
   sed -i "s|APP_CMD=.*|APP_CMD=( ./app/CastarSDK -key=\"$CASTAR_KEY\" )|g" "$RUNTIME"
   echo "Starting Castar..."
-  sudo BASE_NS=castarns VETH_PREFIX=castar WORKDIR=/tmp/castar_multi \
-    bash "$RUNTIME" proxies.txt &
+  sudo BASE_NS=castarns VETH_PREFIX=castar WORKDIR=/tmp/castar_multi CODE="$EXPRESSVPN_CODE" INSTANCE_COUNT="$EXPRESSVPN_INSTANCE_COUNT" \
+    bash "$RUNTIME" &
   PIDS+=($!)
 }
 
@@ -406,7 +416,7 @@ menu() {
   echo "3) Run PacketStream"
   echo "4) Run UrNetwork"
   echo "5) Run Castar"
-  echo "6) Install hev-socks5-tunnel"
+  echo "6) Install ExpressVPN runtime files"
   echo "7) Install EarnApp Binary"
   echo "8) Install Dependencies"
   echo "9) Run ALL (Safe Mode)"
