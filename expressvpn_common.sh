@@ -23,7 +23,7 @@ croatia liechtenstein luxembourg moldova slovenia latvia cyprus chile albania sl
 colombia mexico kazakhstan malta georgia mongolia algeria uruguay guatemala peru venezuela ecuador
 serbia north-macedonia bosnia-and-herzegovina
 uk-midlands uk-east-london uk-tottenham uk-london uk-docklands uk-wembley
-india-(via-uk) india-(via-singapore)
+'india-(via-uk)' 'india-(via-singapore)'
 australia-melbourne australia-sydney-2 australia-brisbane australia-perth australia-woolloomooloo australia-sydney australia-adelaide
 italy-milan italy-cosenza italy-naples
 netherlands-rotterdam netherlands-the-hague netherlands-amsterdam
