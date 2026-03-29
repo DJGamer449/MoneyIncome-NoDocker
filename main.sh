@@ -358,7 +358,7 @@ run_wipter() {
   create_netns_with_veth "wipterns" "wipter" "${NS_INDEX[wipterns]}"
   echo "Starting Wipter..."
   sudo BASE_NS=wipterns VETH_PREFIX=wipter WORKDIR=/tmp/wipter_multi WIPTER_EMAIL="$WIPTER_EMAIL" WIPTER_PASSWORD="$WIPTER_PASSWORD" \
-    bash "$WIPTER_SCRIPT" proxies.txt &
+    bash "$WIPTER_SCRIPT" &
   PIDS+=($!)
 }
 
@@ -382,7 +382,7 @@ run_honeygain() {
   account_blob=$(printf '%s\n' "${HONEYGAIN_ACCOUNTS[@]}")
   echo "Starting Honeygain with ${#HONEYGAIN_ACCOUNTS[@]} account(s)..."
   sudo BASE_NS=honeyns VETH_PREFIX=honey WORKDIR=/tmp/honeygain_multi HONEYGAIN_ACCOUNTS="$account_blob" \
-    bash "$HONEYGAIN_SCRIPT" proxies.txt &
+    bash "$HONEYGAIN_SCRIPT" &
   PIDS+=($!)
 }
 
@@ -394,7 +394,7 @@ run_mysterium() {
   echo "Starting Mysterium node instances..."
   sudo BASE_NS=mysterns VETH_PREFIX=myster WORKDIR=/tmp/mysterium_multi \
     MYST_BASE_DIR="$BASE_DIR/myst" \
-    bash "$MYSTERIUM_SCRIPT" proxies.txt &
+    bash "$MYSTERIUM_SCRIPT" &
   PIDS+=($!)
 }
 
