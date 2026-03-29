@@ -161,8 +161,7 @@ ask_tokens() {
   read -rp "Enter Traff token (or leave blank): " TRAFF_TOKEN
   read -rp "Enter PacketStream CID token (or leave blank): " PS_TOKEN
   read -rp "Enter Castar Key (or leave blank): " CASTAR_KEY
-  read -rsp "Enter ExpressVPN activation key (hidden): " EXPRESSVPN_CODE
-  echo
+  read -rp "Enter ExpressVPN activation key: " EXPRESSVPN_CODE
   while true; do
     read -rp "How many ExpressVPN instances per app? " EXPRESSVPN_INSTANCES
     [[ "$EXPRESSVPN_INSTANCES" =~ ^[1-9][0-9]*$ ]] && break

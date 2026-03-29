@@ -8,6 +8,7 @@ VETH_PREFIX="${VETH_PREFIX:-xveth}"
 WORKDIR="${WORKDIR:-/tmp/expressvpn_multi}"
 INSTANCES="${INSTANCES:-}"
 CODE="${CODE:-}"
+PROTOCOL="${PROTOCOL:-lightwayudp}"
 EXPRESSVPNCTL="${EXPRESSVPNCTL:-$(cd "$(dirname "$0")" && pwd)/app/expressvpn/bin/expressvpnctl}"
 EXPRESSVPN_DAEMON="${EXPRESSVPN_DAEMON:-$(cd "$(dirname "$0")" && pwd)/app/expressvpn/bin/expressvpn-daemon}"
 
@@ -77,8 +78,7 @@ daemon_cmd() {
 
 ask_inputs() {
   if [[ -z "$CODE" ]]; then
-    read -rsp "Enter ExpressVPN activation key: " CODE
-    echo
+    read -rp "Enter ExpressVPN activation key: " CODE
   fi
   while [[ -z "${INSTANCES}" || ! "${INSTANCES}" =~ ^[1-9][0-9]*$ ]]; do
     read -rp "How many instances for ${APP_NAME}? " INSTANCES
@@ -131,6 +131,8 @@ start_instance_supervisor() {
     INST_LIB="$inst_lib" \
     APP_CMD_B64="$app_cmd_b64" \
     REGION="$region" \
+    PROTOCOL="$PROTOCOL" \
+    ACTIVATION_CODE="$CODE" \
     CTL="$ctl" \
     DAEMON="$daemon" \
     INDEX="$idx" \
@@ -149,11 +151,13 @@ start_instance_supervisor() {
       daemon_pid=$!
       sleep 2
 
-      "$CTL" login "$INST_HOME/token" >"$INST_HOME/login.log" 2>&1 || true
-      "$CTL" background enable >/dev/null 2>&1 || true
-      "$CTL" set networklock false >"$INST_HOME/networklock.log" 2>&1 || true
+      "$CTL" background enable >"$INST_HOME/background.log" 2>&1 || true
+      "$CTL" set networklock true >"$INST_HOME/networklock.log" 2>&1 || true
+      "$CTL" set auto_connect true >"$INST_HOME/autoconnect.log" 2>&1 || true
       "$CTL" set region "$REGION" >"$INST_HOME/region.log" 2>&1 || true
-      "$CTL" connect "$REGION" >"$INST_HOME/connect.log" 2>&1
+      "$CTL" set protocol "$PROTOCOL" >"$INST_HOME/protocol.log" 2>&1 || true
+      "$CTL" login <(echo "$ACTIVATION_CODE") >"$INST_HOME/login.log" 2>&1 || true
+      "$CTL" connect >"$INST_HOME/connect.log" 2>&1
       "$CTL" status >"$INST_HOME/status.log" 2>&1 || true
 
       cd "'"$(pwd)"'"
