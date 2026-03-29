@@ -9,21 +9,21 @@ A unified multi-service Linux network namespace manager for:
 -   PacketStream
 -   UrNetwork
 -   CastarSDK
--   hev-socks5-tunnel (heiher native binary)
+-   ExpressVPN (expressvpn-daemon + expressvpnctl)
 -   Honeygain
 -   Mysterium Node
 
 Run multiple services simultaneously using isolated Linux network
-namespaces with proxy routing.
+namespaces with per-namespace ExpressVPN routing.
 
 ------------------------------------------------------------------------
 
 ## ✨ Features
 
 -   Run **EarnApp, TraffMonetizer, PacketStream, UrNetwork, CastarSDK, Honeygain** at the same time
--   Run **Mysterium Node** instances with isolated per-proxy namespaces
+-   Run **Mysterium Node** instances with isolated per-namespace VPN sessions
 -   Each service runs in its own isolated netns
--   Automatic proxy routing via hev-socks5-tunnel
+-   Per-namespace ExpressVPN connectivity
 -   Mysterium node connect UI is auto-forwarded from namespace-local `127.0.0.1:4449` to host `127.0.0.1:4450`, `4451`, `4452`, ...
 -   Persistent Mysterium data directories are auto-created under `myst/myst-1`, `myst/myst-2`, ...
 -   Each Mysterium instance now gets its own HOME/XDG/script directories so identities stay isolated across simultaneous logins
@@ -59,21 +59,18 @@ direct_earnapp.sh\
 direct_traff.sh\
 direct_mysterium.sh\
 install_mysterium_node.sh\
-install_hev-socks5-tunnel.sh\
-proxies.txt
+install_expressvpn.sh\
+(proxies.txt no longer required)
 
 ------------------------------------------------------------------------
 
-## 🔧 Proxy Format
+## 🔧 ExpressVPN Inputs
 
-Create `proxies.txt`:
+Each runner now prompts for:
 
-protocol://user:pass@ip:port
-
-Example:
-
-http://user:pass@1.2.3.4:8080\
-socks5://user:pass@5.6.7.8:1080
+- ExpressVPN activation key
+- Number of instances to run
+- Region selection for each instance (one by one)
 
 ------------------------------------------------------------------------
 
@@ -89,9 +86,9 @@ sudo ./main.sh
 
 Select option:
 
-- `6` to install hev-socks5-tunnel
+- `6` to check ExpressVPN binaries
 - `I` to install Mysterium Node
-- `M` to run Mysterium Node instances through the proxies in `proxies.txt`
+- `M` to run Mysterium Node instances through per-instance ExpressVPN regions
 
 ------------------------------------------------------------------------
 
@@ -110,8 +107,7 @@ Each service:
 
 -   Gets its own Linux network namespace
 -   Gets its own veth pair
--   Gets its own TUN device
--   Routes traffic through hev-socks5-tunnel
+-   Gets its own ExpressVPN daemon/control session
 -   Uses independent IP ranges
 
 Namespace prefixes:
