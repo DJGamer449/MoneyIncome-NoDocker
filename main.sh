@@ -305,37 +305,31 @@ clone_and_run() {
 
 run_earnapp() {
   echo "Starting EarnApp..."
-  sudo ACTIVATION_CODE="$EXPRESSVPN_ACTIVATION_CODE" INSTANCE_COUNT="${EXPRESSVPN_INSTANCE_COUNT:-1}" BASE_NS=earnns VETH_PREFIX=earn WORKDIR=/tmp/earnapp_multi \
+  sudo EXPRESSVPN_BIN_DIR="$BASE_DIR/app/expressvpn/bin" ACTIVATION_CODE="$EXPRESSVPN_ACTIVATION_CODE" INSTANCE_COUNT="${EXPRESSVPN_INSTANCE_COUNT:-1}" BASE_NS=earnns VETH_PREFIX=earn WORKDIR=/tmp/earnapp_multi \
     bash "$EARNAPP_SCRIPT" &
   PIDS+=($!)
 }
 
 run_traff() {
   if [[ -z "$TRAFF_TOKEN" ]]; then echo "Traff token not set."; return; fi
-  local RUNTIME="/tmp/traff_runtime.sh"
-  cp "$TRAFF_SCRIPT" "$RUNTIME"
-  sed -i "s|--token \".*\"|--token \"$TRAFF_TOKEN\"|g" "$RUNTIME"
   echo "Starting Traff..."
-  sudo ACTIVATION_CODE="$EXPRESSVPN_ACTIVATION_CODE" INSTANCE_COUNT="${EXPRESSVPN_INSTANCE_COUNT:-1}" BASE_NS=traffns VETH_PREFIX=traff WORKDIR=/tmp/traff_multi \
-    bash "$RUNTIME" &
+  sudo EXPRESSVPN_BIN_DIR="$BASE_DIR/app/expressvpn/bin" APP_MODE=traff TRAFF_TOKEN="$TRAFF_TOKEN" ACTIVATION_CODE="$EXPRESSVPN_ACTIVATION_CODE" INSTANCE_COUNT="${EXPRESSVPN_INSTANCE_COUNT:-1}" BASE_NS=traffns VETH_PREFIX=traff WORKDIR=/tmp/traff_multi \
+    bash "$TRAFF_SCRIPT" &
   PIDS+=($!)
 }
 
 run_packetstream() {
   if [[ -z "$PS_TOKEN" ]]; then echo "PacketStream token not set."; return; fi
-  local RUNTIME="/tmp/ps_runtime.sh"
-  cp "$TRAFF_SCRIPT" "$RUNTIME"
-  sed -i "s|APP_CMD=.*|APP_CMD=( env CID=\"$PS_TOKEN\" PS_IS_DOCKER=true ./app/psclient )|g" "$RUNTIME"
   echo "Starting PacketStream..."
-  sudo ACTIVATION_CODE="$EXPRESSVPN_ACTIVATION_CODE" INSTANCE_COUNT="${EXPRESSVPN_INSTANCE_COUNT:-1}" BASE_NS=psns VETH_PREFIX=ps WORKDIR=/tmp/ps_multi \
-    bash "$RUNTIME" &
+  sudo EXPRESSVPN_BIN_DIR="$BASE_DIR/app/expressvpn/bin" APP_MODE=packetstream PS_TOKEN="$PS_TOKEN" ACTIVATION_CODE="$EXPRESSVPN_ACTIVATION_CODE" INSTANCE_COUNT="${EXPRESSVPN_INSTANCE_COUNT:-1}" BASE_NS=psns VETH_PREFIX=ps WORKDIR=/tmp/ps_multi \
+    bash "$TRAFF_SCRIPT" &
   PIDS+=($!)
 }
 
 run_castar() {
   if [[ -z "$CASTAR_KEY" ]]; then echo "Castar key not set."; return; fi
   echo "Starting Castar..."
-  sudo CASTAR_KEY="$CASTAR_KEY" ACTIVATION_CODE="$EXPRESSVPN_ACTIVATION_CODE" INSTANCE_COUNT="${EXPRESSVPN_INSTANCE_COUNT:-1}" BASE_NS=castarns VETH_PREFIX=castar WORKDIR=/tmp/castar_multi \
+  sudo EXPRESSVPN_BIN_DIR="$BASE_DIR/app/expressvpn/bin" CASTAR_KEY="$CASTAR_KEY" ACTIVATION_CODE="$EXPRESSVPN_ACTIVATION_CODE" INSTANCE_COUNT="${EXPRESSVPN_INSTANCE_COUNT:-1}" BASE_NS=castarns VETH_PREFIX=castar WORKDIR=/tmp/castar_multi \
     bash "$CASTAR_SCRIPT" &
   PIDS+=($!)
 }
@@ -345,7 +339,7 @@ run_urnetwork() {
   if [[ ! -f "$HOME/.urnetwork/jwt" ]]; then
     ./app/provider auth
   fi
-  sudo ACTIVATION_CODE="$EXPRESSVPN_ACTIVATION_CODE" INSTANCE_COUNT="${EXPRESSVPN_INSTANCE_COUNT:-1}" BASE_NS=urns VETH_PREFIX=ur WORKDIR=/tmp/ur_multi \
+  sudo EXPRESSVPN_BIN_DIR="$BASE_DIR/app/expressvpn/bin" ACTIVATION_CODE="$EXPRESSVPN_ACTIVATION_CODE" INSTANCE_COUNT="${EXPRESSVPN_INSTANCE_COUNT:-1}" BASE_NS=urns VETH_PREFIX=ur WORKDIR=/tmp/ur_multi \
     bash "$UR_SCRIPT" &
   PIDS+=($!)
 }
@@ -363,7 +357,7 @@ run_wipter() {
   fi
 
   echo "Starting Wipter..."
-  sudo ACTIVATION_CODE="$EXPRESSVPN_ACTIVATION_CODE" INSTANCE_COUNT="${EXPRESSVPN_INSTANCE_COUNT:-1}" BASE_NS=wipterns \
+  sudo EXPRESSVPN_BIN_DIR="$BASE_DIR/app/expressvpn/bin" ACTIVATION_CODE="$EXPRESSVPN_ACTIVATION_CODE" INSTANCE_COUNT="${EXPRESSVPN_INSTANCE_COUNT:-1}" BASE_NS=wipterns \
        VETH_PREFIX=wipter \
        WORKDIR=/tmp/wipter_multi \
        WIPTER_EMAIL="$WIPTER_EMAIL" \
@@ -385,7 +379,7 @@ run_honeygain() {
 
   setup_honeygain_accounts || return
   echo "Starting Honeygain..."
-  sudo ACTIVATION_CODE="$EXPRESSVPN_ACTIVATION_CODE" INSTANCE_COUNT="${EXPRESSVPN_INSTANCE_COUNT:-1}" BASE_NS=honeyns \
+  sudo EXPRESSVPN_BIN_DIR="$BASE_DIR/app/expressvpn/bin" ACTIVATION_CODE="$EXPRESSVPN_ACTIVATION_CODE" INSTANCE_COUNT="${EXPRESSVPN_INSTANCE_COUNT:-1}" BASE_NS=honeyns \
        VETH_PREFIX=honey \
        WORKDIR=/tmp/honeygain_multi \
        HONEYGAIN_ACCOUNTS_FILE="$HONEYGAIN_ACCOUNTS_FILE" \

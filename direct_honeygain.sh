@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-HONEYGAIN_BIN="${HONEYGAIN_BIN:-./app/honeygain_file/honeygain}"
-HONEYGAIN_ACCOUNTS_FILE="${HONEYGAIN_ACCOUNTS_FILE:-./honeygain_password.txt}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+HONEYGAIN_BIN="${HONEYGAIN_BIN:-$SCRIPT_DIR/app/honeygain_file/honeygain}"
+HONEYGAIN_ACCOUNTS_FILE="${HONEYGAIN_ACCOUNTS_FILE:-$SCRIPT_DIR/honeygain_password.txt}"
 BASE_NS="${BASE_NS:-honeyns}"
 VETH_PREFIX="${VETH_PREFIX:-honey}"
 WORKDIR="${WORKDIR:-/tmp/honeygain_expressvpn}"
 NS_DNS_LIST="${NS_DNS_LIST:-1.1.1.1 8.8.8.8}"
-EXPRESSVPN_BIN_DIR="${EXPRESSVPN_BIN_DIR:-$(pwd)/app/expressvpn/bin}"
+EXPRESSVPN_BIN_DIR="${EXPRESSVPN_BIN_DIR:-$SCRIPT_DIR/app/expressvpn/bin}"
 EXPRESSVPN_PROTOCOL="${EXPRESSVPN_PROTOCOL:-lightway_udp}"
 mkdir -p "$WORKDIR"
 

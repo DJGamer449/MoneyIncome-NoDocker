@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 BASE_NS="${BASE_NS:-earnns}"
 VETH_PREFIX="${VETH_PREFIX:-earn}"
 WORKDIR="${WORKDIR:-/tmp/earnapp_expressvpn}"
 NS_DNS_LIST="${NS_DNS_LIST:-1.1.1.1 8.8.8.8}"
-EXPRESSVPN_BIN_DIR="${EXPRESSVPN_BIN_DIR:-$(pwd)/app/expressvpn/bin}"
+EXPRESSVPN_BIN_DIR="${EXPRESSVPN_BIN_DIR:-$SCRIPT_DIR/app/expressvpn/bin}"
 EXPRESSVPN_PROTOCOL="${EXPRESSVPN_PROTOCOL:-lightway_udp}"
 mkdir -p "$WORKDIR"
 

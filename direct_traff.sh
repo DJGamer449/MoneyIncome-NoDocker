@@ -1,12 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_CMD=( ./app/cli start accept --token "nblQB8tNIf6aj1Hs51/SJXqflMy0x1jPnsT6kVcYB8s=" )
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+APP_MODE="${APP_MODE:-traff}"
+TRAFF_TOKEN="${TRAFF_TOKEN:-nblQB8tNIf6aj1Hs51/SJXqflMy0x1jPnsT6kVcYB8s=}"
+PS_TOKEN="${PS_TOKEN:-}"
+
+if [[ "$APP_MODE" == "packetstream" ]]; then
+  APP_CMD=( env CID="$PS_TOKEN" PS_IS_DOCKER=true ./app/psclient )
+else
+  APP_CMD=( ./app/cli start accept --token "$TRAFF_TOKEN" )
+fi
 BASE_NS="${BASE_NS:-traffns}"
 VETH_PREFIX="${VETH_PREFIX:-traff}"
 WORKDIR="${WORKDIR:-/tmp/traff_expressvpn}"
 NS_DNS_LIST="${NS_DNS_LIST:-1.1.1.1 8.8.8.8}"
-EXPRESSVPN_BIN_DIR="${EXPRESSVPN_BIN_DIR:-$(pwd)/app/expressvpn/bin}"
+EXPRESSVPN_BIN_DIR="${EXPRESSVPN_BIN_DIR:-$SCRIPT_DIR/app/expressvpn/bin}"
 EXPRESSVPN_PROTOCOL="${EXPRESSVPN_PROTOCOL:-lightway_udp}"
 mkdir -p "$WORKDIR"
 

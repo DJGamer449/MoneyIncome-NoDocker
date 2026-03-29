@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-WIPTER_DIR="${WIPTER_DIR:-./app/wipter}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+WIPTER_DIR="${WIPTER_DIR:-$SCRIPT_DIR/app/wipter}"
 WIPTER_EMAIL="${WIPTER_EMAIL:-}"
 WIPTER_PASSWORD="${WIPTER_PASSWORD:-}"
 BASE_NS="${BASE_NS:-wipterns}"
 VETH_PREFIX="${VETH_PREFIX:-wipter}"
 WORKDIR="${WORKDIR:-/tmp/wipter_expressvpn}"
 NS_DNS_LIST="${NS_DNS_LIST:-1.1.1.1 8.8.8.8}"
-EXPRESSVPN_BIN_DIR="${EXPRESSVPN_BIN_DIR:-$(pwd)/app/expressvpn/bin}"
+EXPRESSVPN_BIN_DIR="${EXPRESSVPN_BIN_DIR:-$SCRIPT_DIR/app/expressvpn/bin}"
 EXPRESSVPN_PROTOCOL="${EXPRESSVPN_PROTOCOL:-lightway_udp}"
 mkdir -p "$WORKDIR"
 
