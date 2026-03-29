@@ -1,163 +1,66 @@
-# MoneyIncome NoDocker
+# MoneyIncome NoDocker (ExpressVPN netns)
 
-![Logo](logo.png)
+This branch migrates all app runners from `hev-socks5-tunnel`/`proxies.txt` to **ExpressVPN** with Linux network namespaces and per-instance isolation.
 
-A unified multi-service Linux network namespace manager for:
+## What changed
 
--   EarnApp
--   TraffMonetizer
--   PacketStream
--   UrNetwork
--   CastarSDK
--   hev-socks5-tunnel (heiher native binary)
--   Honeygain
--   Mysterium Node
+- Every app instance runs in its own netns (`<app>ns1`, `<app>ns2`, ...).
+- Every instance has isolated runtime under `/tmp/<app>_multi/inst_<n>/expressvpn`.
+- Uses full ExpressVPN paths only:
+  - `/opt/expressvpn/bin/expressvpnctl`
+  - `/opt/expressvpn/bin/expressvpn-daemon`
+  - helper scripts from `/opt/expressvpn`
+- Asks once for:
+  - ExpressVPN activation key
+  - number of instances
+- Regions are assigned in fixed order and cycle when list is exhausted.
+- Each instance verifies public IP from inside its namespace.
+- Duplicate public IPs trigger reconnect with next region and retry.
+- App launch is blocked if VPN is not connected.
+- Network lock is enabled and namespace firewall defaults deny to avoid host fallback leaks.
+- Cleanup removes stale namespaces, pids, and `/tmp/<app>_multi` instance data.
 
-Run multiple services simultaneously using isolated Linux network
-namespaces with proxy routing.
+## Menu
 
-------------------------------------------------------------------------
+Run:
 
-## ✨ Features
-
--   Run **EarnApp, TraffMonetizer, PacketStream, UrNetwork, CastarSDK, Honeygain** at the same time
--   Run **Mysterium Node** instances with isolated per-proxy namespaces
--   Each service runs in its own isolated netns
--   Automatic proxy routing via hev-socks5-tunnel
--   Mysterium node connect UI is auto-forwarded from namespace-local `127.0.0.1:4449` to host `127.0.0.1:4450`, `4451`, `4452`, ...
--   Persistent Mysterium data directories are auto-created under `myst/myst-1`, `myst/myst-2`, ...
--   Each Mysterium instance now gets its own HOME/XDG/script directories so identities stay isolated across simultaneous logins
--   Mysterium launch now uses a private mount namespace per instance and bind-mounts isolated app/config/cache paths to prevent cross-instance session/keyring bleed
--   Mysterium runner now probes UDP after tunnel setup and automatically falls back to direct UDP inside the namespace if the SOCKS proxy cannot relay UDP
--   No IP collision (separate namespace prefixes)
--   Live output (no hidden logging)
--   Clean Ctrl+C shutdown
--   Persistent EarnApp UUID handling
--   Works on Ubuntu 22.04 / 24.04
-
-------------------------------------------------------------------------
-
-## 📦 Requirements
-
--   Ubuntu 22.04 / 24.04
--   Root access
--   iproute2
--   iptables
--   curl
--   uuidgen
--   earnapp installed in /usr/bin/earnapp
--   cli binary for Traff
--   psclient binary for PacketStream
--   Honeygain binary + libs in `app/honeygain_file`
-
-------------------------------------------------------------------------
-
-## 📂 Project Structure
-
-mâin.sh\
-direct_earnapp.sh\
-direct_traff.sh\
-direct_mysterium.sh\
-install_mysterium_node.sh\
-install_hev-socks5-tunnel.sh\
-proxies.txt
-
-------------------------------------------------------------------------
-
-## 🔧 Proxy Format
-
-Create `proxies.txt`:
-
-protocol://user:pass@ip:port
-
-Example:
-
-http://user:pass@1.2.3.4:8080\
-socks5://user:pass@5.6.7.8:1080
-
-------------------------------------------------------------------------
-
-## Installation
-
-Make scripts executable:
-
-chmod +x \*.sh
-
-Run manager:
-
+```bash
 sudo ./main.sh
+```
 
-Select option:
+Main options:
+- Install ExpressVPN dependencies
+- Run selected app through isolated ExpressVPN instances
+- Run ALL apps through isolated ExpressVPN instances
 
-- `6` to install hev-socks5-tunnel
-- `I` to install Mysterium Node
-- `M` to run Mysterium Node instances through the proxies in `proxies.txt`
+Supported app flows:
+- EarnApp
+- Traff
+- PacketStream
+- UrNetwork
+- Castar
+- Honeygain
+- Wipter
+- Mysterium
 
-------------------------------------------------------------------------
+## Scripts
 
-## Usage
+- `install_expressvpn.sh`
+- `lib/expressvpn_netns.sh`
+- `lib/instance_regions.sh`
+- `lib/public_ip_check.sh`
+- `direct_earnapp.sh`
+- `direct_traff.sh`
+- `direct_urnetwork.sh`
+- `direct_castar.sh`
+- `direct_honeygain.sh`
+- `direct_wipter.sh`
+- `direct_mysterium.sh`
 
-sudo ./main.sh
+`install_hev-socks5-tunnel.sh` is now a compatibility shim that forwards to ExpressVPN installation.
 
-<img width="390" height="324" alt="image" src="https://github.com/user-attachments/assets/5591b69d-e06d-4577-a35f-c5bdb6be5a79" />
+## Notes
 
-
-------------------------------------------------------------------------
-
-## How It Works
-
-Each service:
-
--   Gets its own Linux network namespace
--   Gets its own veth pair
--   Gets its own TUN device
--   Routes traffic through hev-socks5-tunnel
--   Uses independent IP ranges
-
-Namespace prefixes:
-
-  Service        Namespace Prefix
-  -------------- ------------------
-  EarnApp        earnns
-  Traff          traffns
-  PacketStream   psns
-
-------------------------------------------------------------------------
-
-## Stop Everything
-
-Press Ctrl + C
-
-The script will:
-
--   Kill all running service processes
--   Remove network namespaces
--   Clean up veth interfaces
--   Exit safely
-
-------------------------------------------------------------------------
-## Proof of Concept
-<img width="791" height="622" alt="image" src="https://github.com/user-attachments/assets/8af58716-efa1-496b-8b6e-c5c8ce26e3e6" />
-<img width="685" height="346" alt="image" src="https://github.com/user-attachments/assets/46d0e27c-510b-47c1-b902-a473055d5a52" />
-
-------------------------------------------------------------------------
-
-## ⚠ Disclaimer
-
-This project is for educational and experimental purposes only.
-
-You are responsible for complying with: - Service Terms of Use - Local
-laws - Proxy provider policies
-
-------------------------------------------------------------------------
-
-## 👤 Author
-
-- MelanTrance
-- JessAle (UrNetwork Variant)
-
-------------------------------------------------------------------------
-
-## ⭐ Contribute
-
-Pull requests and improvements are welcome. , Make Sure to Give Us a Stars if you found this useful
+- This is **NO-DOCKER** and uses Linux namespaces directly.
+- Run as root.
+- ExpressVPN package itself must already provide `/opt/expressvpn/bin/*`.
