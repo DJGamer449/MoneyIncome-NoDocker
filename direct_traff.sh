@@ -1,7 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_CMD=( ./app/cli start accept --token "${TRAFF_TOKEN_OVERRIDE:-nblQB8tNIf6aj1Hs51/SJXqflMy0x1jPnsT6kVcYB8s=}" )
+APP_MODE="${APP_MODE:-traff}"
+case "$APP_MODE" in
+  traff)
+    APP_CMD=( ./app/cli start accept --token "${TRAFF_TOKEN_OVERRIDE:-}" )
+    ;;
+  packetstream)
+    APP_CMD=( env CID="${PS_TOKEN_OVERRIDE:-}" PS_IS_DOCKER=true ./app/psclient )
+    ;;
+  castar)
+    APP_CMD=( ./app/CastarSDK -key="${CASTAR_KEY_OVERRIDE:-}" )
+    ;;
+  *)
+    echo "Unsupported APP_MODE: $APP_MODE (use traff|packetstream|castar)"
+    exit 1
+    ;;
+esac
 BASE_NS="${BASE_NS:-traffns}"
 VETH_PREFIX="${VETH_PREFIX:-traff}"
 WORKDIR="${WORKDIR:-/tmp/traff_expressvpn}"
@@ -16,6 +31,18 @@ trap cleanup EXIT
 main() {
   require_root_and_tools
   setup_nat_once
+
+  case "$APP_MODE" in
+    traff)
+      [[ -n "${TRAFF_TOKEN_OVERRIDE:-}" ]] || { echo "TRAFF_TOKEN_OVERRIDE is required"; exit 1; }
+      ;;
+    packetstream)
+      [[ -n "${PS_TOKEN_OVERRIDE:-}" ]] || { echo "PS_TOKEN_OVERRIDE is required"; exit 1; }
+      ;;
+    castar)
+      [[ -n "${CASTAR_KEY_OVERRIDE:-}" ]] || { echo "CASTAR_KEY_OVERRIDE is required"; exit 1; }
+      ;;
+  esac
 
   read -rsp "Enter ExpressVPN activation key: " ACTIVATION_CODE
   echo

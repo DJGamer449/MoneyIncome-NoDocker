@@ -301,36 +301,30 @@ run_earnapp() {
 run_traff() {
   if [[ -z "$TRAFF_TOKEN" ]]; then echo "Traff token not set."; return; fi
   create_netns_with_veth "traffns" "traff" "${NS_INDEX[traffns]}"
-  local RUNTIME="/tmp/traff_runtime.sh"
-  cp "$TRAFF_SCRIPT" "$RUNTIME"
-  sed -i "s|--token \".*\"|--token \"$TRAFF_TOKEN\"|g" "$RUNTIME"
   echo "Starting Traff..."
   sudo BASE_NS=traffns VETH_PREFIX=traff WORKDIR=/tmp/traff_multi \
-    bash "$RUNTIME" &
+    APP_MODE=traff TRAFF_TOKEN_OVERRIDE="$TRAFF_TOKEN" \
+    bash "$TRAFF_SCRIPT" &
   PIDS+=($!)
 }
 
 run_packetstream() {
   if [[ -z "$PS_TOKEN" ]]; then echo "PacketStream token not set."; return; fi
   create_netns_with_veth "psns" "ps" "${NS_INDEX[psns]}"
-  local RUNTIME="/tmp/ps_runtime.sh"
-  cp "$TRAFF_SCRIPT" "$RUNTIME"
-  sed -i "s|APP_CMD=.*|APP_CMD=( env CID=\"$PS_TOKEN\" PS_IS_DOCKER=true ./app/psclient )|g" "$RUNTIME"
   echo "Starting PacketStream..."
   sudo BASE_NS=psns VETH_PREFIX=ps WORKDIR=/tmp/ps_multi \
-    bash "$RUNTIME" &
+    APP_MODE=packetstream PS_TOKEN_OVERRIDE="$PS_TOKEN" \
+    bash "$TRAFF_SCRIPT" &
   PIDS+=($!)
 }
 
 run_castar() {
   if [[ -z "$CASTAR_KEY" ]]; then echo "Castar key not set."; return; fi
   create_netns_with_veth "castarns" "castar" "${NS_INDEX[castarns]}"
-  local RUNTIME="/tmp/castar_runtime.sh"
-  cp "$TRAFF_SCRIPT" "$RUNTIME"
-  sed -i "s|APP_CMD=.*|APP_CMD=( ./app/CastarSDK -key=\"$CASTAR_KEY\" )|g" "$RUNTIME"
   echo "Starting Castar..."
   sudo BASE_NS=castarns VETH_PREFIX=castar WORKDIR=/tmp/castar_multi \
-    bash "$RUNTIME" &
+    APP_MODE=castar CASTAR_KEY_OVERRIDE="$CASTAR_KEY" \
+    bash "$TRAFF_SCRIPT" &
   PIDS+=($!)
 }
 
