@@ -18,7 +18,6 @@ BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 EARNAPP_SCRIPT="$BASE_DIR/direct_earnapp.sh"
 TRAFF_SCRIPT="$BASE_DIR/direct_traff.sh"
 UR_SCRIPT="$BASE_DIR/direct_urnetwork.sh"
-INSTALL_SCRIPT="$BASE_DIR/install_hev-socks5-tunnel.sh"
 MYST_INSTALL_SCRIPT="$BASE_DIR/install_mysterium_node.sh"
 WIPTER_SCRIPT="$BASE_DIR/direct_wipter.sh"
 HONEYGAIN_SCRIPT="$BASE_DIR/direct_honeygain.sh"
@@ -33,6 +32,9 @@ CASTAR_KEY=""
 WIPTER_EMAIL=""
 WIPTER_PASSWORD=""
 HONEYGAIN_ACCOUNTS=()
+EXPRESSVPN_ACTIVATION_CODE=""
+EXPRESSVPN_PROTOCOL="auto"
+VPN_INSTANCE_COUNT=1
 
 # maps ns name -> numeric index used for subnet allocation
 declare -A NS_INDEX=(
@@ -160,6 +162,11 @@ ask_tokens() {
   read -rp "Enter Traff token (or leave blank): " TRAFF_TOKEN
   read -rp "Enter PacketStream CID token (or leave blank): " PS_TOKEN
   read -rp "Enter Castar Key (or leave blank): " CASTAR_KEY
+  read -rp "Enter ExpressVPN activation key: " EXPRESSVPN_ACTIVATION_CODE
+  read -rp "How many instances per app to run? [default 1]: " VPN_INSTANCE_COUNT
+  VPN_INSTANCE_COUNT="${VPN_INSTANCE_COUNT:-1}"
+  read -rp "Enter ExpressVPN protocol (auto/lightway_tcp/lightway_udp/openvpn_udp/openvpn_tcp) [auto]: " EXPRESSVPN_PROTOCOL
+  EXPRESSVPN_PROTOCOL="${EXPRESSVPN_PROTOCOL:-auto}"
   echo "------ Wipter Credentials ------"
   read -rp "Enter Wipter Email (or leave blank): " WIPTER_EMAIL
   read -rsp "Enter Wipter Password (hidden, leave blank to skip): " WIPTER_PASSWORD
@@ -225,6 +232,9 @@ setup_honeygain_accounts() {
     read -rp "Use saved accounts? [Y/n]: " use_saved
     if [[ "$use_saved" =~ ^[Nn]$ ]]; then
       HONEYGAIN_ACCOUNTS=()
+EXPRESSVPN_ACTIVATION_CODE=""
+EXPRESSVPN_PROTOCOL="auto"
+VPN_INSTANCE_COUNT=1
     else
       read -rp "Add more accounts to previous setup? [y/N]: " add_more_saved
       if [[ "$add_more_saved" =~ ^[Yy]$ ]]; then
@@ -294,8 +304,8 @@ clone_and_run() {
 run_earnapp() {
   create_netns_with_veth "earnns" "earn" "${NS_INDEX[earnns]}"
   echo "Starting EarnApp..."
-  sudo BASE_NS=earnns VETH_PREFIX=earn WORKDIR=/tmp/earnapp_multi \
-    bash "$EARNAPP_SCRIPT" proxies.txt &
+  sudo BASE_DIR="$BASE_DIR" DIRECT_COMMON_PATH="$BASE_DIR/direct_expressvpn_common.sh" BASE_NS=earnns VETH_PREFIX=earn WORKDIR=/tmp/earnapp_multi INSTANCE_COUNT="$VPN_INSTANCE_COUNT" EXPRESSVPN_ACTIVATION_CODE="$EXPRESSVPN_ACTIVATION_CODE" EXPRESSVPN_PROTOCOL="$EXPRESSVPN_PROTOCOL" \
+    bash "$EARNAPP_SCRIPT" &
   PIDS+=($!)
 }
 
@@ -306,8 +316,8 @@ run_traff() {
   cp "$TRAFF_SCRIPT" "$RUNTIME"
   sed -i "s|--token \".*\"|--token \"$TRAFF_TOKEN\"|g" "$RUNTIME"
   echo "Starting Traff..."
-  sudo BASE_NS=traffns VETH_PREFIX=traff WORKDIR=/tmp/traff_multi \
-    bash "$RUNTIME" proxies.txt &
+  sudo BASE_DIR="$BASE_DIR" DIRECT_COMMON_PATH="$BASE_DIR/direct_expressvpn_common.sh" BASE_NS=traffns VETH_PREFIX=traff WORKDIR=/tmp/traff_multi INSTANCE_COUNT="$VPN_INSTANCE_COUNT" EXPRESSVPN_ACTIVATION_CODE="$EXPRESSVPN_ACTIVATION_CODE" EXPRESSVPN_PROTOCOL="$EXPRESSVPN_PROTOCOL" \
+    bash "$RUNTIME" &
   PIDS+=($!)
 }
 
@@ -318,8 +328,8 @@ run_packetstream() {
   cp "$TRAFF_SCRIPT" "$RUNTIME"
   sed -i "s|APP_CMD=.*|APP_CMD=( env CID=\"$PS_TOKEN\" PS_IS_DOCKER=true ./app/psclient )|g" "$RUNTIME"
   echo "Starting PacketStream..."
-  sudo BASE_NS=psns VETH_PREFIX=ps WORKDIR=/tmp/ps_multi \
-    bash "$RUNTIME" proxies.txt &
+  sudo BASE_DIR="$BASE_DIR" DIRECT_COMMON_PATH="$BASE_DIR/direct_expressvpn_common.sh" BASE_NS=psns VETH_PREFIX=ps WORKDIR=/tmp/ps_multi INSTANCE_COUNT="$VPN_INSTANCE_COUNT" EXPRESSVPN_ACTIVATION_CODE="$EXPRESSVPN_ACTIVATION_CODE" EXPRESSVPN_PROTOCOL="$EXPRESSVPN_PROTOCOL" \
+    bash "$RUNTIME" &
   PIDS+=($!)
 }
 
@@ -330,8 +340,8 @@ run_castar() {
   cp "$TRAFF_SCRIPT" "$RUNTIME"
   sed -i "s|APP_CMD=.*|APP_CMD=( ./app/CastarSDK -key=\"$CASTAR_KEY\" )|g" "$RUNTIME"
   echo "Starting Castar..."
-  sudo BASE_NS=castarns VETH_PREFIX=castar WORKDIR=/tmp/castar_multi \
-    bash "$RUNTIME" proxies.txt &
+  sudo BASE_DIR="$BASE_DIR" DIRECT_COMMON_PATH="$BASE_DIR/direct_expressvpn_common.sh" BASE_NS=castarns VETH_PREFIX=castar WORKDIR=/tmp/castar_multi INSTANCE_COUNT="$VPN_INSTANCE_COUNT" EXPRESSVPN_ACTIVATION_CODE="$EXPRESSVPN_ACTIVATION_CODE" EXPRESSVPN_PROTOCOL="$EXPRESSVPN_PROTOCOL" \
+    bash "$RUNTIME" &
   PIDS+=($!)
 }
 
@@ -341,8 +351,8 @@ run_urnetwork() {
   if [[ ! -f "$HOME/.urnetwork/jwt" ]]; then
     ./app/provider auth
   fi
-  sudo BASE_NS=urns VETH_PREFIX=ur WORKDIR=/tmp/ur_multi \
-    bash "$UR_SCRIPT" proxies.txt &
+  sudo BASE_DIR="$BASE_DIR" DIRECT_COMMON_PATH="$BASE_DIR/direct_expressvpn_common.sh" BASE_NS=urns VETH_PREFIX=ur WORKDIR=/tmp/ur_multi INSTANCE_COUNT="$VPN_INSTANCE_COUNT" EXPRESSVPN_ACTIVATION_CODE="$EXPRESSVPN_ACTIVATION_CODE" EXPRESSVPN_PROTOCOL="$EXPRESSVPN_PROTOCOL" \
+    bash "$UR_SCRIPT" &
   PIDS+=($!)
 }
 
@@ -358,8 +368,8 @@ run_wipter() {
   fi
   create_netns_with_veth "wipterns" "wipter" "${NS_INDEX[wipterns]}"
   echo "Starting Wipter..."
-  sudo BASE_NS=wipterns VETH_PREFIX=wipter WORKDIR=/tmp/wipter_multi WIPTER_EMAIL="$WIPTER_EMAIL" WIPTER_PASSWORD="$WIPTER_PASSWORD" \
-    bash "$WIPTER_SCRIPT" proxies.txt &
+  sudo BASE_DIR="$BASE_DIR" DIRECT_COMMON_PATH="$BASE_DIR/direct_expressvpn_common.sh" BASE_NS=wipterns VETH_PREFIX=wipter WORKDIR=/tmp/wipter_multi INSTANCE_COUNT="$VPN_INSTANCE_COUNT" EXPRESSVPN_ACTIVATION_CODE="$EXPRESSVPN_ACTIVATION_CODE" EXPRESSVPN_PROTOCOL="$EXPRESSVPN_PROTOCOL" WIPTER_EMAIL="$WIPTER_EMAIL" WIPTER_PASSWORD="$WIPTER_PASSWORD" \
+    bash "$WIPTER_SCRIPT" &
   PIDS+=($!)
 }
 
@@ -382,8 +392,8 @@ run_honeygain() {
   local account_blob
   account_blob=$(printf '%s\n' "${HONEYGAIN_ACCOUNTS[@]}")
   echo "Starting Honeygain with ${#HONEYGAIN_ACCOUNTS[@]} account(s)..."
-  sudo BASE_NS=honeyns VETH_PREFIX=honey WORKDIR=/tmp/honeygain_multi HONEYGAIN_ACCOUNTS="$account_blob" \
-    bash "$HONEYGAIN_SCRIPT" proxies.txt &
+  sudo BASE_DIR="$BASE_DIR" DIRECT_COMMON_PATH="$BASE_DIR/direct_expressvpn_common.sh" BASE_NS=honeyns VETH_PREFIX=honey WORKDIR=/tmp/honeygain_multi INSTANCE_COUNT="$VPN_INSTANCE_COUNT" EXPRESSVPN_ACTIVATION_CODE="$EXPRESSVPN_ACTIVATION_CODE" EXPRESSVPN_PROTOCOL="$EXPRESSVPN_PROTOCOL" HONEYGAIN_ACCOUNTS="$account_blob" \
+    bash "$HONEYGAIN_SCRIPT" &
   PIDS+=($!)
 }
 
@@ -393,9 +403,9 @@ run_mysterium() {
     return
   fi
   echo "Starting Mysterium node instances..."
-  sudo BASE_NS=mysterns VETH_PREFIX=myster WORKDIR=/tmp/mysterium_multi \
-    MYST_BASE_DIR="$BASE_DIR/myst" \
-    bash "$MYSTERIUM_SCRIPT" proxies.txt &
+  sudo BASE_DIR="$BASE_DIR" DIRECT_COMMON_PATH="$BASE_DIR/direct_expressvpn_common.sh" BASE_NS=mysterns VETH_PREFIX=myster WORKDIR=/tmp/mysterium_multi \
+    MYST_BASE_DIR="$BASE_DIR/myst" INSTANCE_COUNT="$VPN_INSTANCE_COUNT" EXPRESSVPN_ACTIVATION_CODE="$EXPRESSVPN_ACTIVATION_CODE" EXPRESSVPN_PROTOCOL="$EXPRESSVPN_PROTOCOL" \
+    bash "$MYSTERIUM_SCRIPT" &
   PIDS+=($!)
 }
 
@@ -406,10 +416,9 @@ menu() {
   echo "3) Run PacketStream"
   echo "4) Run UrNetwork"
   echo "5) Run Castar"
-  echo "6) Install hev-socks5-tunnel"
-  echo "7) Install EarnApp Binary"
-  echo "8) Install Dependencies"
-  echo "9) Run ALL (Safe Mode)"
+  echo "6) Install EarnApp Binary"
+  echo "7) Install Dependencies"
+  echo "8) Run ALL (Safe Mode)"
   echo "A) Clone & Run custom repo"
   echo "H) Run Honeygain"
   echo "W) Run Wipter"
@@ -431,10 +440,9 @@ while true; do
     3) run_packetstream ; wait ;;
     4) run_urnetwork ; wait ;;
     5) run_castar ; wait ;;
-    6) sudo bash "$INSTALL_SCRIPT" ; wait ;;
-    7) install_earnapp ; wait ;;
-    8) install_dependencies ; wait ;;
-    9)
+    6) install_earnapp ; wait ;;
+    7) install_dependencies ; wait ;;
+    8)
       run_earnapp
       run_traff
       run_packetstream
