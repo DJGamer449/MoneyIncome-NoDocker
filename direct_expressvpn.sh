@@ -8,7 +8,7 @@ VETH_PREFIX="${VETH_PREFIX:-xveth}"
 WORKDIR="${WORKDIR:-/tmp/expressvpn_multi}"
 INSTANCES="${INSTANCES:-}"
 CODE="${CODE:-}"
-PROTOCOL="${PROTOCOL:-openvpnudp}"
+PROTOCOL="${PROTOCOL:-lightwayudp}"
 EXPRESSVPNCTL="${EXPRESSVPNCTL:-$(cd "$(dirname "$0")" && pwd)/app/expressvpn/bin/expressvpnctl}"
 EXPRESSVPN_DAEMON="${EXPRESSVPN_DAEMON:-$(cd "$(dirname "$0")" && pwd)/app/expressvpn/bin/expressvpn-daemon}"
 
