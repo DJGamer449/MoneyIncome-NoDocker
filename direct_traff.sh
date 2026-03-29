@@ -10,7 +10,19 @@ EXPRESSVPN_PROTOCOL="${EXPRESSVPN_PROTOCOL:-auto}"
 EXPRESSVPN_ACTIVATION_CODE="${EXPRESSVPN_ACTIVATION_CODE:-}"
 
 mkdir -p "$WORKDIR"
-source "$(cd "$(dirname "$0")" && pwd)/direct_expressvpn_common.sh"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HELPER_PATH="${EXPRESSVPN_HELPER:-$SCRIPT_DIR/direct_expressvpn_common.sh}"
+if [[ ! -f "$HELPER_PATH" ]]; then
+  HELPER_PATH="$(pwd)/direct_expressvpn_common.sh"
+fi
+if [[ ! -f "$HELPER_PATH" ]]; then
+  HELPER_PATH="/tmp/direct_expressvpn_common.sh"
+fi
+[[ -f "$HELPER_PATH" ]] || {
+  echo "direct_expressvpn_common.sh not found. Set EXPRESSVPN_HELPER or place helper script in repo root."
+  exit 1
+}
+source "$HELPER_PATH"
 
 main() {
   require_expressvpn_prereqs
