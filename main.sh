@@ -18,7 +18,6 @@ BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 EARNAPP_SCRIPT="$BASE_DIR/direct_earnapp.sh"
 TRAFF_SCRIPT="$BASE_DIR/direct_traff.sh"
 UR_SCRIPT="$BASE_DIR/direct_urnetwork.sh"
-INSTALL_SCRIPT="$BASE_DIR/install_hev-socks5-tunnel.sh"
 MYST_INSTALL_SCRIPT="$BASE_DIR/install_mysterium_node.sh"
 WIPTER_SCRIPT="$BASE_DIR/direct_wipter.sh"
 HONEYGAIN_SCRIPT="$BASE_DIR/direct_honeygain.sh"
@@ -33,6 +32,37 @@ CASTAR_KEY=""
 WIPTER_EMAIL=""
 WIPTER_PASSWORD=""
 HONEYGAIN_ACCOUNTS=()
+EXPRESSVPN_BIN_DIR="$BASE_DIR/app/expressvpn/bin"
+EXPRESSVPN_DAEMON="$EXPRESSVPN_BIN_DIR/expressvpn-daemon"
+EXPRESSVPN_CTL="$EXPRESSVPN_BIN_DIR/expressvpnctl"
+EXPRESSVPN_ACTIVATION=""
+EXPRESSVPN_PROTOCOL="lightway_udp"
+EXPRESSVPN_INSTANCE_COUNT=1
+EXPRESSVPN_REGIONS=()
+DEFAULT_EXPRESSVPN_REGIONS=(
+  usa-san-francisco usa-new-jersey-2 usa-lincoln-park usa-houston usa-tampa-1 usa-new-jersey-3 usa-brooklyn usa-denver
+  usa-dallas usa-atlanta usa-seattle usa-miami-2 usa-salt-lake-city usa-santa-monica usa-washington-dc usa-new-jersey-1
+  usa-boston usa-birmingham usa-anchorage usa-little-rock usa-bridgeport usa-wilmington usa-honolulu usa-boise
+  usa-indianapolis usa-des-moines usa-wichita usa-louisville usa-new-orleans usa-portland-maine usa-baltimore usa-detroit
+  usa-minneapolis usa-jackson usa-st.-louis usa-billings usa-omaha usa-las-vegas usa-manchester usa-charlotte
+  usa-fargo usa-columbus usa-oklahoma-city usa-portland-oregon usa-philadelphia usa-providence
+  usa-charleston-south-carolina usa-sioux-falls usa-nashville usa-burlington usa-virginia-beach
+  usa-charleston-west-virginia usa-milwaukee usa-cheyenne usa-miami usa-los-angeles-1 usa-los-angeles-2
+  usa-los-angeles-5 usa-los-angeles-3 usa-new-york usa-chicago usa-phoenix usa-albuquerque
+  costa-rica thailand greece france-strasbourg france-paris-1 france-alsace france-marseille france-paris-2 israel iceland
+  singapore-cbd singapore-jurong singapore-marina-bay taiwan-3 south-africa switzerland switzerland-2 bulgaria malaysia indonesia
+  new-zealand hong-kong-2 hong-kong-1 bahamas vietnam croatia liechtenstein luxembourg moldova slovenia latvia cyprus chile
+  albania slovakia uzbekistan isle-of-man estonia colombia mexico kazakhstan malta georgia mongolia algeria uruguay guatemala peru
+  venezuela ecuador serbia north-macedonia bosnia-and-herzegovina uk-midlands uk-east-london uk-tottenham uk-london uk-docklands
+  uk-wembley "india-(via-uk)" "india-(via-singapore)" australia-melbourne australia-sydney-2 australia-brisbane australia-perth
+  australia-woolloomooloo australia-sydney australia-adelaide italy-milan italy-cosenza italy-naples netherlands-rotterdam
+  netherlands-the-hague netherlands-amsterdam brazil-2 brazil philippines canada-toronto-2 canada-vancouver canada-montreal
+  canada-toronto macau cambodia kenya andorra armenia belarus monaco jersey montenegro bangladesh bhutan brunei laos myanmar nepal
+  pakistan sri-lanka panama sweden-2 sweden austria germany-nuremberg germany-frankfurt-1 germany-frankfurt-3 spain-barcelona
+  spain-madrid spain-barcelona-2 japan-yokohama japan-tokyo japan-shibuya japan-osaka bolivia guam ghana dominican-republic
+  jamaica puerto-rico bermuda trinidad-and-tobago cayman-islands cuba honduras lebanon morocco united-arab-emirates azerbaijan
+  portugal poland ireland finland lithuania czech-republic south-korea-2 denmark egypt belgium romania ukraine argentina turkey norway hungary
+)
 
 # maps ns name -> numeric index used for subnet allocation
 declare -A NS_INDEX=(
@@ -154,6 +184,62 @@ cleanup() {
   exit 0
 }
 trap cleanup INT TERM
+
+
+ask_expressvpn_setup() {
+  echo "========== EXPRESSVPN SETUP =========="
+  if [[ ! -x "$EXPRESSVPN_DAEMON" || ! -x "$EXPRESSVPN_CTL" ]]; then
+    echo "ExpressVPN binaries not found/executable in $EXPRESSVPN_BIN_DIR"
+    echo "Required: expressvpn-daemon and expressvpnctl"
+    exit 1
+  fi
+  while true; do
+    read -rsp "Enter ExpressVPN activation key: " EXPRESSVPN_ACTIVATION
+    echo
+    [[ -n "$EXPRESSVPN_ACTIVATION" ]] && break
+    echo "Activation key cannot be empty."
+  done
+  while true; do
+    read -rp "How many VPN instances do you want to run? [1+]: " EXPRESSVPN_INSTANCE_COUNT
+    [[ "$EXPRESSVPN_INSTANCE_COUNT" =~ ^[0-9]+$ ]] && (( EXPRESSVPN_INSTANCE_COUNT >= 1 )) && break
+    echo "Please enter a number >= 1."
+  done
+  read -rp "ExpressVPN protocol [lightway_udp]: " EXPRESSVPN_PROTOCOL
+  EXPRESSVPN_PROTOCOL="${EXPRESSVPN_PROTOCOL:-lightway_udp}"
+  EXPRESSVPN_REGIONS=()
+  local i region default_region total
+  total=${#DEFAULT_EXPRESSVPN_REGIONS[@]}
+  for ((i=1; i<=EXPRESSVPN_INSTANCE_COUNT; i++)); do
+    default_region="${DEFAULT_EXPRESSVPN_REGIONS[$(((i-1)%total))]}"
+    read -rp "Region for instance ${i} [${default_region}]: " region
+    region="${region:-$default_region}"
+    EXPRESSVPN_REGIONS+=("$region")
+  done
+}
+
+start_expressvpn_in_ns() {
+  local ns="$1"
+  local region="$2"
+  local runtime_root="/tmp/expressvpn/${ns}"
+  sudo mkdir -p "$runtime_root" "$runtime_root/home" "$runtime_root/run" "$runtime_root/tmp"
+  sudo chmod 700 "$runtime_root/home"
+  sudo ip netns exec "$ns" bash -lc "
+    groupadd -f expressvpn >/dev/null 2>&1 || true
+    export HOME='$runtime_root/home'
+    export TMPDIR='$runtime_root/tmp'
+    export XDG_RUNTIME_DIR='$runtime_root/run'
+    export PATH='$EXPRESSVPN_BIN_DIR':\$PATH
+    nohup '$EXPRESSVPN_DAEMON' >'$runtime_root/daemon.log' 2>&1 &
+    sleep 2
+    '$EXPRESSVPN_CTL' background enable
+    '$EXPRESSVPN_CTL' set networklock true
+    '$EXPRESSVPN_CTL' set auto_connect true
+    '$EXPRESSVPN_CTL' set region '$region'
+    '$EXPRESSVPN_CTL' set protocol '$EXPRESSVPN_PROTOCOL'
+    '$EXPRESSVPN_CTL' login <(echo '$EXPRESSVPN_ACTIVATION')
+    '$EXPRESSVPN_CTL' connect
+  "
+}
 
 ask_tokens() {
   echo "========== TOKEN SETUP =========="
@@ -285,6 +371,9 @@ clone_and_run() {
   fi
 
   create_netns_with_veth "$ns_name" "$veth_prefix" "$idx"
+  local region_idx=$(( idx > 0 ? idx - 1 : 0 ))
+  local region="${EXPRESSVPN_REGIONS[$region_idx]:-${EXPRESSVPN_REGIONS[0]}}"
+  start_expressvpn_in_ns "$ns_name" "$region"
   echo "Starting $app_name inside namespace $ns_name..."
   sudo ip netns exec "$ns_name" bash -lc "cd '$dest' && nohup $run_cmd >/tmp/${app_name}.log 2>&1 & echo \$!" \
     | { read -r pid; echo "$pid"; PIDS+=("$pid"); } >/dev/null 2>&1 || true
@@ -293,6 +382,7 @@ clone_and_run() {
 
 run_earnapp() {
   create_netns_with_veth "earnns" "earn" "${NS_INDEX[earnns]}"
+  start_expressvpn_in_ns "earnns" "${EXPRESSVPN_REGIONS[0]}"
   echo "Starting EarnApp..."
   sudo BASE_NS=earnns VETH_PREFIX=earn WORKDIR=/tmp/earnapp_multi \
     bash "$EARNAPP_SCRIPT" proxies.txt &
@@ -302,6 +392,7 @@ run_earnapp() {
 run_traff() {
   if [[ -z "$TRAFF_TOKEN" ]]; then echo "Traff token not set."; return; fi
   create_netns_with_veth "traffns" "traff" "${NS_INDEX[traffns]}"
+  start_expressvpn_in_ns "traffns" "${EXPRESSVPN_REGIONS[0]}"
   local RUNTIME="/tmp/traff_runtime.sh"
   cp "$TRAFF_SCRIPT" "$RUNTIME"
   sed -i "s|--token \".*\"|--token \"$TRAFF_TOKEN\"|g" "$RUNTIME"
@@ -314,6 +405,7 @@ run_traff() {
 run_packetstream() {
   if [[ -z "$PS_TOKEN" ]]; then echo "PacketStream token not set."; return; fi
   create_netns_with_veth "psns" "ps" "${NS_INDEX[psns]}"
+  start_expressvpn_in_ns "psns" "${EXPRESSVPN_REGIONS[0]}"
   local RUNTIME="/tmp/ps_runtime.sh"
   cp "$TRAFF_SCRIPT" "$RUNTIME"
   sed -i "s|APP_CMD=.*|APP_CMD=( env CID=\"$PS_TOKEN\" PS_IS_DOCKER=true ./app/psclient )|g" "$RUNTIME"
@@ -326,6 +418,7 @@ run_packetstream() {
 run_castar() {
   if [[ -z "$CASTAR_KEY" ]]; then echo "Castar key not set."; return; fi
   create_netns_with_veth "castarns" "castar" "${NS_INDEX[castarns]}"
+  start_expressvpn_in_ns "castarns" "${EXPRESSVPN_REGIONS[0]}"
   local RUNTIME="/tmp/castar_runtime.sh"
   cp "$TRAFF_SCRIPT" "$RUNTIME"
   sed -i "s|APP_CMD=.*|APP_CMD=( ./app/CastarSDK -key=\"$CASTAR_KEY\" )|g" "$RUNTIME"
@@ -337,6 +430,7 @@ run_castar() {
 
 run_urnetwork() {
   create_netns_with_veth "urns" "ur" "${NS_INDEX[urns]}"
+  start_expressvpn_in_ns "urns" "${EXPRESSVPN_REGIONS[0]}"
   echo "Starting UrNetwork..."
   if [[ ! -f "$HOME/.urnetwork/jwt" ]]; then
     ./app/provider auth
@@ -357,6 +451,7 @@ run_wipter() {
     return
   fi
   create_netns_with_veth "wipterns" "wipter" "${NS_INDEX[wipterns]}"
+  start_expressvpn_in_ns "wipterns" "${EXPRESSVPN_REGIONS[0]}"
   echo "Starting Wipter..."
   sudo BASE_NS=wipterns VETH_PREFIX=wipter WORKDIR=/tmp/wipter_multi WIPTER_EMAIL="$WIPTER_EMAIL" WIPTER_PASSWORD="$WIPTER_PASSWORD" \
     bash "$WIPTER_SCRIPT" proxies.txt &
@@ -379,6 +474,8 @@ run_honeygain() {
     return
   fi
 
+  create_netns_with_veth "honeyns" "honey" "${NS_INDEX[honeyns]}"
+  start_expressvpn_in_ns "honeyns" "${EXPRESSVPN_REGIONS[0]}"
   local account_blob
   account_blob=$(printf '%s\n' "${HONEYGAIN_ACCOUNTS[@]}")
   echo "Starting Honeygain with ${#HONEYGAIN_ACCOUNTS[@]} account(s)..."
@@ -392,6 +489,8 @@ run_mysterium() {
     echo "direct_mysterium.sh not found or not executable at $MYSTERIUM_SCRIPT"
     return
   fi
+  create_netns_with_veth "mysterns" "myster" "${NS_INDEX[mysterns]}"
+  start_expressvpn_in_ns "mysterns" "${EXPRESSVPN_REGIONS[0]}"
   echo "Starting Mysterium node instances..."
   sudo BASE_NS=mysterns VETH_PREFIX=myster WORKDIR=/tmp/mysterium_multi \
     MYST_BASE_DIR="$BASE_DIR/myst" \
@@ -406,7 +505,7 @@ menu() {
   echo "3) Run PacketStream"
   echo "4) Run UrNetwork"
   echo "5) Run Castar"
-  echo "6) Install hev-socks5-tunnel"
+  echo "6) Validate ExpressVPN binaries"
   echo "7) Install EarnApp Binary"
   echo "8) Install Dependencies"
   echo "9) Run ALL (Safe Mode)"
@@ -421,6 +520,7 @@ menu() {
 
 kernel_tune
 ask_tokens
+ask_expressvpn_setup
 
 while true; do
   menu
@@ -431,7 +531,7 @@ while true; do
     3) run_packetstream ; wait ;;
     4) run_urnetwork ; wait ;;
     5) run_castar ; wait ;;
-    6) sudo bash "$INSTALL_SCRIPT" ; wait ;;
+    6) [[ -x "$EXPRESSVPN_DAEMON" && -x "$EXPRESSVPN_CTL" ]] && echo "ExpressVPN binaries OK at $EXPRESSVPN_BIN_DIR" || echo "ExpressVPN binaries missing" ; wait ;;
     7) install_earnapp ; wait ;;
     8) install_dependencies ; wait ;;
     9)
