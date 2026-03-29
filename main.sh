@@ -143,6 +143,10 @@ create_isolated_ns() {
   ip netns exec "$ns" ip link set lo up
   ip netns exec "$ns" ip route replace default via "10.210.${idx}.1" dev "$ns_if"
   mkdir -p "/etc/netns/$ns/expressvpn"
+  # expressvpn startup bind-mounts this namespace path onto /etc/expressvpn.
+  # Ensure bind target exists to avoid:
+  # "Bind /etc/netns/<ns>/expressvpn -> /etc/expressvpn failed: No such file or directory"
+  mkdir -p "/etc/expressvpn"
   printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > "/etc/netns/$ns/resolv.conf"
   iptables -t nat -C POSTROUTING -s "$subnet" -o "$HOST_IF" -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -s "$subnet" -o "$HOST_IF" -j MASQUERADE
   ip netns exec "$ns" groupadd -f expressvpn || true
