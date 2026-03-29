@@ -10,7 +10,7 @@ A unified multi-service Linux network namespace manager for:
 -   UrNetwork
 -   CastarSDK
 -   Honeygain
--   tun2socks (xjasonlyu native binary)
+-   ExpressVPN per namespace (expressvpn-daemon/expressvpnctl)
 
 Run multiple services simultaneously using isolated Linux network
 namespaces with proxy routing.
@@ -21,7 +21,7 @@ namespaces with proxy routing.
 
 -   Run **EarnApp, TraffMonetizer, PacketStream, UrNetwork, CastarSDK, Honeygain** at the same time
 -   Each service runs in its own isolated netns
--   Automatic proxy routing via tun2socks
+-   Automatic per-instance VPN routing via ExpressVPN
 -   No IP collision (separate namespace prefixes)
 -   Live output (no hidden logging)
 -   Clean Ctrl+C shutdown
@@ -80,7 +80,7 @@ sudo ./main.sh
 
 Select option:
 
-4)  Install tun2socks
+4)  Configure ExpressVPN binaries in app/expressvpn/bin
 
 ------------------------------------------------------------------------
 
@@ -110,7 +110,7 @@ Each service:
 -   Gets its own Linux network namespace
 -   Gets its own veth pair
 -   Gets its own TUN device
--   Routes traffic through tun2socks
+-   Routes traffic through ExpressVPN in its own namespace
 -   Uses independent IP ranges
 
 Namespace prefixes:
