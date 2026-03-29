@@ -17,6 +17,7 @@ chmod +x ./app/cli ./app/psclient ./app/provider ./app/CastarSDK ./app/honeygain
 BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 EARNAPP_SCRIPT="$BASE_DIR/direct_earnapp.sh"
 TRAFF_SCRIPT="$BASE_DIR/direct_traff.sh"
+CASTAR_SCRIPT="$BASE_DIR/direct_castar.sh"
 UR_SCRIPT="$BASE_DIR/direct_urnetwork.sh"
 MYST_INSTALL_SCRIPT="$BASE_DIR/install_mysterium_node.sh"
 WIPTER_SCRIPT="$BASE_DIR/direct_wipter.sh"
@@ -85,7 +86,7 @@ HOST_IF="$(ip route show default 2>/dev/null | awk '/default/ {print $5; exit}')
 kernel_tune() {
   echo "Applying conservative kernel tuning for high-scale (safe defaults)..."
   sudo modprobe nf_conntrack 2>/dev/null || true
-  ulimit -n 2097152 || true
+  ulimit -n 2097152 2>/dev/null || true
   sudo sysctl -w fs.file-max=1000000 >/dev/null || true
   sudo sysctl -w fs.nr_open=2000000 >/dev/null || true
   sudo sysctl -w net.ipv4.tcp_tw_reuse=1 >/dev/null || true
@@ -229,6 +230,7 @@ start_expressvpn_in_ns() {
   sudo mkdir -p "$runtime_root" "$runtime_root/home" "$runtime_root/run" "$runtime_root/tmp"
   sudo chmod 700 "$runtime_root/home"
   sudo ip netns exec "$ns" bash -lc "
+    set +e
     groupadd -f expressvpn >/dev/null 2>&1 || true
     export HOME='$runtime_root/home'
     export TMPDIR='$runtime_root/tmp'
@@ -236,13 +238,13 @@ start_expressvpn_in_ns() {
     export PATH='$EXPRESSVPN_BIN_DIR':\$PATH
     nohup '$EXPRESSVPN_DAEMON' >'$runtime_root/daemon.log' 2>&1 &
     sleep 2
-    '$EXPRESSVPN_CTL' background enable
+    '$EXPRESSVPN_CTL' background enable || true
     '$EXPRESSVPN_CTL' set networklock true
-    '$EXPRESSVPN_CTL' set auto_connect true
+    '$EXPRESSVPN_CTL' set auto_connect true || '$EXPRESSVPN_CTL' set auto-connect true || true
     '$EXPRESSVPN_CTL' set region '$region'
     '$EXPRESSVPN_CTL' set protocol '$EXPRESSVPN_PROTOCOL'
-    '$EXPRESSVPN_CTL' login <(echo '$EXPRESSVPN_ACTIVATION')
-    '$EXPRESSVPN_CTL' connect
+    '$EXPRESSVPN_CTL' login <(echo '$EXPRESSVPN_ACTIVATION') || true
+    '$EXPRESSVPN_CTL' connect || true
   "
 }
 
@@ -399,10 +401,11 @@ run_traff() {
   create_netns_with_veth "traffns" "traff" "${NS_INDEX[traffns]}"
   start_expressvpn_in_ns "traffns" "${EXPRESSVPN_REGIONS[0]}"
   local RUNTIME="/tmp/traff_runtime.sh"
+  local LIB_RUNTIME="/tmp/direct_expressvpn_lib.sh"
   cp "$TRAFF_SCRIPT" "$RUNTIME"
-  sed -i "s|--token \".*\"|--token \"$TRAFF_TOKEN\"|g" "$RUNTIME"
+  cp "$BASE_DIR/direct_expressvpn_lib.sh" "$LIB_RUNTIME"
   echo "Starting Traff..."
-  sudo BASE_NS=traffns VETH_PREFIX=traff WORKDIR=/tmp/traff_multi \
+  sudo BASE_DIR=/tmp TRAFF_TOKEN="$TRAFF_TOKEN" BASE_NS=traffns VETH_PREFIX=traff WORKDIR=/tmp/traff_multi \
     bash "$RUNTIME" proxies.txt &
   PIDS+=($!)
 }
@@ -412,10 +415,12 @@ run_packetstream() {
   create_netns_with_veth "psns" "ps" "${NS_INDEX[psns]}"
   start_expressvpn_in_ns "psns" "${EXPRESSVPN_REGIONS[0]}"
   local RUNTIME="/tmp/ps_runtime.sh"
+  local LIB_RUNTIME="/tmp/direct_expressvpn_lib.sh"
   cp "$TRAFF_SCRIPT" "$RUNTIME"
+  cp "$BASE_DIR/direct_expressvpn_lib.sh" "$LIB_RUNTIME"
   sed -i "s|APP_CMD=.*|APP_CMD=( env CID=\"$PS_TOKEN\" PS_IS_DOCKER=true ./app/psclient )|g" "$RUNTIME"
   echo "Starting PacketStream..."
-  sudo BASE_NS=psns VETH_PREFIX=ps WORKDIR=/tmp/ps_multi \
+  sudo BASE_DIR=/tmp BASE_NS=psns VETH_PREFIX=ps WORKDIR=/tmp/ps_multi \
     bash "$RUNTIME" proxies.txt &
   PIDS+=($!)
 }
@@ -424,12 +429,9 @@ run_castar() {
   if [[ -z "$CASTAR_KEY" ]]; then echo "Castar key not set."; return; fi
   create_netns_with_veth "castarns" "castar" "${NS_INDEX[castarns]}"
   start_expressvpn_in_ns "castarns" "${EXPRESSVPN_REGIONS[0]}"
-  local RUNTIME="/tmp/castar_runtime.sh"
-  cp "$TRAFF_SCRIPT" "$RUNTIME"
-  sed -i "s|APP_CMD=.*|APP_CMD=( ./app/CastarSDK -key=\"$CASTAR_KEY\" )|g" "$RUNTIME"
   echo "Starting Castar..."
-  sudo BASE_NS=castarns VETH_PREFIX=castar WORKDIR=/tmp/castar_multi \
-    bash "$RUNTIME" proxies.txt &
+  sudo CASTAR_KEY="$CASTAR_KEY" BASE_NS=castarns VETH_PREFIX=castar WORKDIR=/tmp/castar_multi \
+    bash "$CASTAR_SCRIPT" proxies.txt &
   PIDS+=($!)
 }
 
