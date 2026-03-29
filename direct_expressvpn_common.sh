@@ -43,31 +43,6 @@ require_root() {
   [[ "$INSTANCE_COUNT" =~ ^[0-9]+$ ]] || { echo "INSTANCE_COUNT must be integer"; exit 1; }
 }
 
-install_host_binaries() {
-  local src_bin="./app/expressvpn/bin"
-  local f base
-
-  [[ -d "$src_bin" ]] || return 0
-  mkdir -p /usr/bin /usr/local/bin
-
-  while IFS= read -r -d '' f; do
-    base="$(basename "$f")"
-    install -m 0755 "$f" "/usr/bin/$base"
-    install -m 0755 "$f" "/usr/local/bin/$base"
-  done < <(find "$src_bin" -maxdepth 1 -type f -print0)
-}
-
-verify_host_commands() {
-  local src_bin="./app/expressvpn/bin"
-  local f base
-  while IFS= read -r -d '' f; do
-    base="$(basename "$f")"
-    if ! command -v "$base" >/dev/null 2>&1; then
-      echo "Warning: command -v $base failed even after install"
-    fi
-  done < <(find "$src_bin" -maxdepth 1 -type f -print0)
-}
-
 host_if() {
   ip route show default 2>/dev/null | awk '/default/ {print $5; exit}'
 }
@@ -123,10 +98,7 @@ prepare_expressvpn_instance() {
     install -m 0755 "$inst_dir/expressvpn-service" "/etc/netns/$ns/init.d/expressvpn-service"
   fi
 
-  # Put binaries in default command path as requested.
-  if [[ -d "$inst_dir/bin" ]]; then
-    find "$inst_dir/bin" -maxdepth 1 -type f -exec install -m 0755 {} /usr/bin/ \;
-  fi
+  chmod +x "$inst_dir/bin"/* 2>/dev/null || true
 }
 
 connect_expressvpn() {
@@ -174,8 +146,6 @@ start_app_instance() {
 main() {
   prompt_if_missing_inputs
   require_root
-  install_host_binaries
-  verify_host_commands
   mapfile -t REGIONS < <(tr ',' '\n' <<<"$REGIONS_CSV" | sed 's/^ *//;s/ *$//' | sed '/^$/d') || true
   (( ${#REGIONS[@]} > 0 )) || { echo "No regions supplied via REGIONS_CSV"; exit 1; }
 
