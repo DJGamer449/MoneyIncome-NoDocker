@@ -18,7 +18,7 @@ BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 EARNAPP_SCRIPT="$BASE_DIR/direct_earnapp.sh"
 TRAFF_SCRIPT="$BASE_DIR/direct_traff.sh"
 UR_SCRIPT="$BASE_DIR/direct_urnetwork.sh"
-INSTALL_SCRIPT="$BASE_DIR/install_hev-socks5-tunnel.sh"
+INSTALL_SCRIPT="$BASE_DIR/install_expressvpn.sh"
 MYST_INSTALL_SCRIPT="$BASE_DIR/install_mysterium_node.sh"
 WIPTER_SCRIPT="$BASE_DIR/direct_wipter.sh"
 HONEYGAIN_SCRIPT="$BASE_DIR/direct_honeygain.sh"
@@ -295,7 +295,7 @@ run_earnapp() {
   create_netns_with_veth "earnns" "earn" "${NS_INDEX[earnns]}"
   echo "Starting EarnApp..."
   sudo BASE_NS=earnns VETH_PREFIX=earn WORKDIR=/tmp/earnapp_multi \
-    bash "$EARNAPP_SCRIPT" proxies.txt &
+    bash "$EARNAPP_SCRIPT" &
   PIDS+=($!)
 }
 
@@ -307,7 +307,7 @@ run_traff() {
   sed -i "s|--token \".*\"|--token \"$TRAFF_TOKEN\"|g" "$RUNTIME"
   echo "Starting Traff..."
   sudo BASE_NS=traffns VETH_PREFIX=traff WORKDIR=/tmp/traff_multi \
-    bash "$RUNTIME" proxies.txt &
+    bash "$RUNTIME" &
   PIDS+=($!)
 }
 
@@ -319,7 +319,7 @@ run_packetstream() {
   sed -i "s|APP_CMD=.*|APP_CMD=( env CID=\"$PS_TOKEN\" PS_IS_DOCKER=true ./app/psclient )|g" "$RUNTIME"
   echo "Starting PacketStream..."
   sudo BASE_NS=psns VETH_PREFIX=ps WORKDIR=/tmp/ps_multi \
-    bash "$RUNTIME" proxies.txt &
+    bash "$RUNTIME" &
   PIDS+=($!)
 }
 
@@ -331,7 +331,7 @@ run_castar() {
   sed -i "s|APP_CMD=.*|APP_CMD=( ./app/CastarSDK -key=\"$CASTAR_KEY\" )|g" "$RUNTIME"
   echo "Starting Castar..."
   sudo BASE_NS=castarns VETH_PREFIX=castar WORKDIR=/tmp/castar_multi \
-    bash "$RUNTIME" proxies.txt &
+    bash "$RUNTIME" &
   PIDS+=($!)
 }
 
@@ -342,7 +342,7 @@ run_urnetwork() {
     ./app/provider auth
   fi
   sudo BASE_NS=urns VETH_PREFIX=ur WORKDIR=/tmp/ur_multi \
-    bash "$UR_SCRIPT" proxies.txt &
+    bash "$UR_SCRIPT" &
   PIDS+=($!)
 }
 
@@ -359,7 +359,7 @@ run_wipter() {
   create_netns_with_veth "wipterns" "wipter" "${NS_INDEX[wipterns]}"
   echo "Starting Wipter..."
   sudo BASE_NS=wipterns VETH_PREFIX=wipter WORKDIR=/tmp/wipter_multi WIPTER_EMAIL="$WIPTER_EMAIL" WIPTER_PASSWORD="$WIPTER_PASSWORD" \
-    bash "$WIPTER_SCRIPT" proxies.txt &
+    bash "$WIPTER_SCRIPT" &
   PIDS+=($!)
 }
 
@@ -383,7 +383,7 @@ run_honeygain() {
   account_blob=$(printf '%s\n' "${HONEYGAIN_ACCOUNTS[@]}")
   echo "Starting Honeygain with ${#HONEYGAIN_ACCOUNTS[@]} account(s)..."
   sudo BASE_NS=honeyns VETH_PREFIX=honey WORKDIR=/tmp/honeygain_multi HONEYGAIN_ACCOUNTS="$account_blob" \
-    bash "$HONEYGAIN_SCRIPT" proxies.txt &
+    bash "$HONEYGAIN_SCRIPT" &
   PIDS+=($!)
 }
 
@@ -395,7 +395,7 @@ run_mysterium() {
   echo "Starting Mysterium node instances..."
   sudo BASE_NS=mysterns VETH_PREFIX=myster WORKDIR=/tmp/mysterium_multi \
     MYST_BASE_DIR="$BASE_DIR/myst" \
-    bash "$MYSTERIUM_SCRIPT" proxies.txt &
+    bash "$MYSTERIUM_SCRIPT" &
   PIDS+=($!)
 }
 
@@ -406,7 +406,7 @@ menu() {
   echo "3) Run PacketStream"
   echo "4) Run UrNetwork"
   echo "5) Run Castar"
-  echo "6) Install hev-socks5-tunnel"
+  echo "6) Install ExpressVPN runtime files"
   echo "7) Install EarnApp Binary"
   echo "8) Install Dependencies"
   echo "9) Run ALL (Safe Mode)"
