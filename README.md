@@ -9,7 +9,7 @@ A unified multi-service Linux network namespace manager for:
 -   PacketStream
 -   UrNetwork
 -   CastarSDK
--   hev-socks5-tunnel (heiher native binary)
+-   ExpressVPN CLI (`./app/expressvpn/bin/expressvpnctl` and `expressvpn-daemon`)
 -   Honeygain
 -   Mysterium Node
 
@@ -23,7 +23,7 @@ namespaces with proxy routing.
 -   Run **EarnApp, TraffMonetizer, PacketStream, UrNetwork, CastarSDK, Honeygain** at the same time
 -   Run **Mysterium Node** instances with isolated per-proxy namespaces
 -   Each service runs in its own isolated netns
--   Automatic proxy routing via hev-socks5-tunnel
+-   Automatic per-namespace ExpressVPN routing (one VPN IP per namespace)
 -   Mysterium node connect UI is auto-forwarded from namespace-local `127.0.0.1:4449` to host `127.0.0.1:4450`, `4451`, `4452`, ...
 -   Persistent Mysterium data directories are auto-created under `myst/myst-1`, `myst/myst-2`, ...
 -   Each Mysterium instance now gets its own HOME/XDG/script directories so identities stay isolated across simultaneous logins
@@ -59,21 +59,19 @@ direct_earnapp.sh\
 direct_traff.sh\
 direct_mysterium.sh\
 install_mysterium_node.sh\
-install_hev-socks5-tunnel.sh\
-proxies.txt
+direct_expressvpn_common.sh
 
 ------------------------------------------------------------------------
 
-## 🔧 Proxy Format
+## 🔧 ExpressVPN Setup
 
-Create `proxies.txt`:
+At runtime, the manager prompts for:
 
-protocol://user:pass@ip:port
+- ExpressVPN activation key
+- Number of instances per app
+- ExpressVPN protocol
 
-Example:
-
-http://user:pass@1.2.3.4:8080\
-socks5://user:pass@5.6.7.8:1080
+Each instance gets a dedicated Linux network namespace and its own ExpressVPN region/IP.
 
 ------------------------------------------------------------------------
 
@@ -89,9 +87,9 @@ sudo ./main.sh
 
 Select option:
 
-- `6` to install hev-socks5-tunnel
+- `6` to install EarnApp binary
 - `I` to install Mysterium Node
-- `M` to run Mysterium Node instances through the proxies in `proxies.txt`
+- `M` to run Mysterium Node instances through ExpressVPN namespaces
 
 ------------------------------------------------------------------------
 
@@ -111,7 +109,7 @@ Each service:
 -   Gets its own Linux network namespace
 -   Gets its own veth pair
 -   Gets its own TUN device
--   Routes traffic through hev-socks5-tunnel
+-   Routes traffic through ExpressVPN
 -   Uses independent IP ranges
 
 Namespace prefixes:
