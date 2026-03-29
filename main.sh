@@ -133,12 +133,17 @@ create_isolated_ns() {
   local host_if="${prefix}${idx}h" ns_if="${prefix}${idx}n"
   local host_ip="10.210.${idx}.1/24" ns_ip="10.210.${idx}.2/24" subnet="10.210.${idx}.0/24"
 
-  ip netns add "$ns" 2>/dev/null || true
-  ip link add "$host_if" type veth peer name "$ns_if" 2>/dev/null || true
+  # Remove stale namespace/veth from previous partial runs.
+  ip netns del "$ns" 2>/dev/null || true
+  ip link del "$host_if" 2>/dev/null || true
+  ip link del "$ns_if" 2>/dev/null || true
+
+  ip netns add "$ns"
+  ip link add "$host_if" type veth peer name "$ns_if"
   ip link set "$ns_if" netns "$ns"
-  ip addr add "$host_ip" dev "$host_if" 2>/dev/null || true
+  ip addr add "$host_ip" dev "$host_if"
   ip link set "$host_if" up
-  ip netns exec "$ns" ip addr add "$ns_ip" dev "$ns_if" 2>/dev/null || true
+  ip netns exec "$ns" ip addr add "$ns_ip" dev "$ns_if"
   ip netns exec "$ns" ip link set "$ns_if" up
   ip netns exec "$ns" ip link set lo up
   ip netns exec "$ns" ip route replace default via "10.210.${idx}.1" dev "$ns_if"
