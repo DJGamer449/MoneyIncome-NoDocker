@@ -18,7 +18,7 @@ BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 EARNAPP_SCRIPT="$BASE_DIR/direct_earnapp.sh"
 TRAFF_SCRIPT="$BASE_DIR/direct_traff.sh"
 UR_SCRIPT="$BASE_DIR/direct_urnetwork.sh"
-INSTALL_SCRIPT="$BASE_DIR/install_tun2socks.sh"
+CASTAR_SCRIPT="$BASE_DIR/direct_castar.sh"
 WIPTER_SCRIPT="$BASE_DIR/direct_wipter.sh"
 HONEYGAIN_SCRIPT="$BASE_DIR/direct_honeygain.sh"
 HONEYGAIN_ACCOUNTS_FILE="$BASE_DIR/honeygain_password.txt"
@@ -158,6 +158,11 @@ trap cleanup INT TERM
 
 ask_tokens() {
   echo "========== TOKEN SETUP =========="
+  read -rsp "Enter ExpressVPN activation code/key: " EXPRESSVPN_ACTIVATION_CODE
+  echo
+  read -rp "How many ExpressVPN instances per app? [default: 1]: " EXPRESSVPN_INSTANCE_COUNT
+  EXPRESSVPN_INSTANCE_COUNT="${EXPRESSVPN_INSTANCE_COUNT:-1}"
+  if [[ ! "$EXPRESSVPN_INSTANCE_COUNT" =~ ^[1-9][0-9]*$ ]]; then EXPRESSVPN_INSTANCE_COUNT=1; fi
   read -rp "Enter Traff token (or leave blank): " TRAFF_TOKEN
   read -rp "Enter PacketStream CID token (or leave blank): " PS_TOKEN
   read -rp "Enter Castar Key (or leave blank): " CASTAR_KEY
@@ -299,57 +304,49 @@ clone_and_run() {
 }
 
 run_earnapp() {
-  create_netns_with_veth "earnns" "earn" "${NS_INDEX[earnns]}"
   echo "Starting EarnApp..."
-  sudo BASE_NS=earnns VETH_PREFIX=earn WORKDIR=/tmp/earnapp_multi \
-    bash "$EARNAPP_SCRIPT" proxies.txt &
+  sudo ACTIVATION_CODE="$EXPRESSVPN_ACTIVATION_CODE" INSTANCE_COUNT="${EXPRESSVPN_INSTANCE_COUNT:-1}" BASE_NS=earnns VETH_PREFIX=earn WORKDIR=/tmp/earnapp_multi \
+    bash "$EARNAPP_SCRIPT" &
   PIDS+=($!)
 }
 
 run_traff() {
   if [[ -z "$TRAFF_TOKEN" ]]; then echo "Traff token not set."; return; fi
-  create_netns_with_veth "traffns" "traff" "${NS_INDEX[traffns]}"
   local RUNTIME="/tmp/traff_runtime.sh"
   cp "$TRAFF_SCRIPT" "$RUNTIME"
   sed -i "s|--token \".*\"|--token \"$TRAFF_TOKEN\"|g" "$RUNTIME"
   echo "Starting Traff..."
-  sudo BASE_NS=traffns VETH_PREFIX=traff WORKDIR=/tmp/traff_multi \
-    bash "$RUNTIME" proxies.txt &
+  sudo ACTIVATION_CODE="$EXPRESSVPN_ACTIVATION_CODE" INSTANCE_COUNT="${EXPRESSVPN_INSTANCE_COUNT:-1}" BASE_NS=traffns VETH_PREFIX=traff WORKDIR=/tmp/traff_multi \
+    bash "$RUNTIME" &
   PIDS+=($!)
 }
 
 run_packetstream() {
   if [[ -z "$PS_TOKEN" ]]; then echo "PacketStream token not set."; return; fi
-  create_netns_with_veth "psns" "ps" "${NS_INDEX[psns]}"
   local RUNTIME="/tmp/ps_runtime.sh"
   cp "$TRAFF_SCRIPT" "$RUNTIME"
   sed -i "s|APP_CMD=.*|APP_CMD=( env CID=\"$PS_TOKEN\" PS_IS_DOCKER=true ./app/psclient )|g" "$RUNTIME"
   echo "Starting PacketStream..."
-  sudo BASE_NS=psns VETH_PREFIX=ps WORKDIR=/tmp/ps_multi \
-    bash "$RUNTIME" proxies.txt &
+  sudo ACTIVATION_CODE="$EXPRESSVPN_ACTIVATION_CODE" INSTANCE_COUNT="${EXPRESSVPN_INSTANCE_COUNT:-1}" BASE_NS=psns VETH_PREFIX=ps WORKDIR=/tmp/ps_multi \
+    bash "$RUNTIME" &
   PIDS+=($!)
 }
 
 run_castar() {
   if [[ -z "$CASTAR_KEY" ]]; then echo "Castar key not set."; return; fi
-  create_netns_with_veth "castarns" "castar" "${NS_INDEX[castarns]}"
-  local RUNTIME="/tmp/castar_runtime.sh"
-  cp "$TRAFF_SCRIPT" "$RUNTIME"
-  sed -i "s|APP_CMD=.*|APP_CMD=( ./app/CastarSDK -key=\"$CASTAR_KEY\" )|g" "$RUNTIME"
   echo "Starting Castar..."
-  sudo BASE_NS=castarns VETH_PREFIX=castar WORKDIR=/tmp/castar_multi \
-    bash "$RUNTIME" proxies.txt &
+  sudo CASTAR_KEY="$CASTAR_KEY" ACTIVATION_CODE="$EXPRESSVPN_ACTIVATION_CODE" INSTANCE_COUNT="${EXPRESSVPN_INSTANCE_COUNT:-1}" BASE_NS=castarns VETH_PREFIX=castar WORKDIR=/tmp/castar_multi \
+    bash "$CASTAR_SCRIPT" &
   PIDS+=($!)
 }
 
 run_urnetwork() {
-  create_netns_with_veth "urns" "ur" "${NS_INDEX[urns]}"
   echo "Starting UrNetwork..."
   if [[ ! -f "$HOME/.urnetwork/jwt" ]]; then
     ./app/provider auth
   fi
-  sudo BASE_NS=urns VETH_PREFIX=ur WORKDIR=/tmp/ur_multi \
-    bash "$UR_SCRIPT" proxies.txt &
+  sudo ACTIVATION_CODE="$EXPRESSVPN_ACTIVATION_CODE" INSTANCE_COUNT="${EXPRESSVPN_INSTANCE_COUNT:-1}" BASE_NS=urns VETH_PREFIX=ur WORKDIR=/tmp/ur_multi \
+    bash "$UR_SCRIPT" &
   PIDS+=($!)
 }
 
@@ -365,14 +362,13 @@ run_wipter() {
     return
   fi
 
-  create_netns_with_veth "wipterns" "wipter" "${NS_INDEX[wipterns]}"
   echo "Starting Wipter..."
-  sudo BASE_NS=wipterns \
+  sudo ACTIVATION_CODE="$EXPRESSVPN_ACTIVATION_CODE" INSTANCE_COUNT="${EXPRESSVPN_INSTANCE_COUNT:-1}" BASE_NS=wipterns \
        VETH_PREFIX=wipter \
        WORKDIR=/tmp/wipter_multi \
        WIPTER_EMAIL="$WIPTER_EMAIL" \
        WIPTER_PASSWORD="$WIPTER_PASSWORD" \
-       bash "$WIPTER_SCRIPT" proxies.txt &
+       bash "$WIPTER_SCRIPT" &
   PIDS+=($!)
 }
 
@@ -388,13 +384,12 @@ run_honeygain() {
   fi
 
   setup_honeygain_accounts || return
-  create_netns_with_veth "honeyns" "honey" "${NS_INDEX[honeyns]}"
   echo "Starting Honeygain..."
-  sudo BASE_NS=honeyns \
+  sudo ACTIVATION_CODE="$EXPRESSVPN_ACTIVATION_CODE" INSTANCE_COUNT="${EXPRESSVPN_INSTANCE_COUNT:-1}" BASE_NS=honeyns \
        VETH_PREFIX=honey \
        WORKDIR=/tmp/honeygain_multi \
        HONEYGAIN_ACCOUNTS_FILE="$HONEYGAIN_ACCOUNTS_FILE" \
-       bash "$HONEYGAIN_SCRIPT" proxies.txt &
+       bash "$HONEYGAIN_SCRIPT" &
   PIDS+=($!)
 }
 
@@ -405,9 +400,8 @@ menu() {
   echo "3) Run PacketStream"
   echo "4) Run UrNetwork"
   echo "5) Run Castar"
-  echo "6) Install tun2socks"
-  echo "7) Install EarnApp Binary"
-  echo "8) Install Dependencies"
+  echo "6) Install EarnApp Binary"
+  echo "7) Install Dependencies"
   echo "9) Run ALL (Safe Mode)"
   echo "A) Clone & Run custom repo"
   echo "H) Run Honeygain"
@@ -428,9 +422,8 @@ while true; do
     3) run_packetstream ; wait ;;
     4) run_urnetwork ; wait ;;
     5) run_castar ; wait ;;
-    6) sudo bash "$INSTALL_SCRIPT" ; wait ;;
-    7) install_earnapp ; wait ;;
-    8) install_dependencies ; wait ;;
+    6) install_earnapp ; wait ;;
+    7) install_dependencies ; wait ;;
     9)
       run_earnapp
       run_traff

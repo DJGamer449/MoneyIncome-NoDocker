@@ -46,18 +46,29 @@ require_root() {
 }
 
 ask_user_inputs() {
-  read -rsp "Enter ExpressVPN activation code/key: " ACTIVATION_CODE
-  echo
+  ACTIVATION_CODE="${ACTIVATION_CODE:-}"
+  INSTANCE_COUNT="${INSTANCE_COUNT:-}"
+
+  if [[ -z "$ACTIVATION_CODE" ]]; then
+    read -rsp "Enter ExpressVPN activation code/key: " ACTIVATION_CODE
+    echo
+  fi
   [[ -n "$ACTIVATION_CODE" ]] || { echo "Activation code is required."; exit 1; }
 
-  while true; do
-    read -rp "How many instances do you want to run? " INSTANCE_COUNT
-    [[ "$INSTANCE_COUNT" =~ ^[1-9][0-9]*$ ]] && break
-    echo "Please enter a valid number >= 1"
-  done
+  if [[ ! "$INSTANCE_COUNT" =~ ^[1-9][0-9]*$ ]]; then
+    while true; do
+      read -rp "How many instances do you want to run? " INSTANCE_COUNT
+      [[ "$INSTANCE_COUNT" =~ ^[1-9][0-9]*$ ]] && break
+      echo "Please enter a valid number >= 1"
+    done
+  fi
 
-  read -rp "ExpressVPN protocol [default: $EXPRESSVPN_PROTOCOL]: " proto_input
-  EXPRESSVPN_PROTOCOL="${proto_input:-$EXPRESSVPN_PROTOCOL}"
+  if [[ -n "${EXPRESSVPN_PROTOCOL_OVERRIDE:-}" ]]; then
+    EXPRESSVPN_PROTOCOL="$EXPRESSVPN_PROTOCOL_OVERRIDE"
+  else
+    read -rp "ExpressVPN protocol [default: $EXPRESSVPN_PROTOCOL]: " proto_input
+    EXPRESSVPN_PROTOCOL="${proto_input:-$EXPRESSVPN_PROTOCOL}"
+  fi
 }
 
 calc_octets() { local idx="$1"; echo $(( (idx-1)/254 + 1 )) $(( (idx-1)%254 + 1 )); }
