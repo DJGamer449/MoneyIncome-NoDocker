@@ -15,7 +15,7 @@ costa-rica thailand greece france-strasbourg france-paris-1 france-alsace france
 singapore-cbd singapore-jurong singapore-marina-bay taiwan-3 south-africa switzerland switzerland-2 bulgaria malaysia indonesia new-zealand
 hong-kong-2 hong-kong-1 bahamas vietnam croatia liechtenstein luxembourg moldova slovenia latvia cyprus chile albania slovakia uzbekistan isle-of-man estonia
 colombia mexico kazakhstan malta georgia mongolia algeria uruguay guatemala peru venezuela ecuador serbia north-macedonia bosnia-and-herzegovina
-uk-midlands uk-east-london uk-tottenham uk-london uk-docklands uk-wembley india-(via-uk) india-(via-singapore)
+uk-midlands uk-east-london uk-tottenham uk-london uk-docklands uk-wembley 'india-(via-uk)' 'india-(via-singapore)'
 australia-melbourne australia-sydney-2 australia-brisbane australia-perth australia-woolloomooloo australia-sydney australia-adelaide
 italy-milan italy-cosenza italy-naples netherlands-rotterdam netherlands-the-hague netherlands-amsterdam brazil-2 brazil philippines
 canada-toronto-2 canada-vancouver canada-montreal canada-toronto macau cambodia kenya andorra armenia belarus monaco jersey montenegro
