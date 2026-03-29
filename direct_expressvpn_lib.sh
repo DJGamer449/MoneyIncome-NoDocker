@@ -82,7 +82,6 @@ start_expressvpn_in_ns() {
     sleep 2
     '$EXPRESSVPN_CTL' background enable
     '$EXPRESSVPN_CTL' set networklock true
-    '$EXPRESSVPN_CTL' set auto_connect true
     '$EXPRESSVPN_CTL' set region '$region'
     '$EXPRESSVPN_CTL' set protocol '$EXPRESSVPN_PROTOCOL'
     '$EXPRESSVPN_CTL' login <(echo '$EXPRESSVPN_ACTIVATION_CODE')

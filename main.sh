@@ -152,7 +152,7 @@ create_netns_with_veth() {
   echo "nameserver 8.8.8.8" | sudo tee -a /etc/netns/"$ns"/resolv.conf >/dev/null
   sudo iptables -t nat -A POSTROUTING -s "$subnet" -o "$HOST_IF" -j MASQUERADE
   CREATED_SUBNETS+=("$subnet")
-  echo "Netns $ns created: host dev $host_if ($host_ip) <-> ns dev $ns_if ($ns_ip)."
+  :
 }
 
 stop_tracked_pids() {
@@ -240,7 +240,6 @@ start_expressvpn_in_ns() {
     sleep 2
     '$EXPRESSVPN_CTL' background enable || true
     '$EXPRESSVPN_CTL' set networklock true
-    '$EXPRESSVPN_CTL' set auto_connect true || '$EXPRESSVPN_CTL' set auto-connect true || true
     '$EXPRESSVPN_CTL' set region '$region'
     '$EXPRESSVPN_CTL' set protocol '$EXPRESSVPN_PROTOCOL'
     '$EXPRESSVPN_CTL' login <(echo '$EXPRESSVPN_ACTIVATION') || true
