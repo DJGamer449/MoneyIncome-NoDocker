@@ -108,12 +108,12 @@ connect_expressvpn() {
     set -e
     mkdir -p /expressvpn
     mountpoint -q /expressvpn || mount --bind '$inst_dir/script' /expressvpn
+    chmod +x /expressvpn/start.sh
     export PATH='$inst_dir/bin':\$PATH
     export HOME='$inst_dir'
-    expressvpn preferences set send_diagnostics false >/dev/null 2>&1 || true
-    expressvpn activate '$EXPRESSVPN_ACTIVATION_CODE' >/dev/null 2>&1 || true
-    expressvpn disconnect >/dev/null 2>&1 || true
-    expressvpn connect '$region'
+    export CODE='$EXPRESSVPN_ACTIVATION_CODE'
+    export SERVER='$region'
+    /expressvpn/start.sh
   " >>"$log_file" 2>&1
 }
 
