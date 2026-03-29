@@ -37,11 +37,16 @@ choose_regions() {
   local count="$1"
   REGIONS=()
   local total="${#DEFAULT_REGIONS[@]}"
-  local i def r
+  local i def r choose_specific
+  read -rp "Select specific region for each instance? [y/N]: " choose_specific
   for ((i=1;i<=count;i++)); do
     def="${DEFAULT_REGIONS[$(((i-1)%total))]}"
-    read -rp "Region for instance $i [$def]: " r
-    REGIONS+=("${r:-$def}")
+    if [[ "$choose_specific" =~ ^[Yy]$ ]]; then
+      read -rp "Region for instance $i [$def]: " r
+      REGIONS+=("${r:-$def}")
+    else
+      REGIONS+=("$def")
+    fi
   done
 }
 

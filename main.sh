@@ -207,12 +207,17 @@ ask_expressvpn_setup() {
   read -rp "ExpressVPN protocol [lightway_udp]: " EXPRESSVPN_PROTOCOL
   EXPRESSVPN_PROTOCOL="${EXPRESSVPN_PROTOCOL:-lightway_udp}"
   EXPRESSVPN_REGIONS=()
-  local i region default_region total
+  local i region default_region total choose_specific_region
+  read -rp "Select specific region for each instance? [y/N]: " choose_specific_region
   total=${#DEFAULT_EXPRESSVPN_REGIONS[@]}
   for ((i=1; i<=EXPRESSVPN_INSTANCE_COUNT; i++)); do
     default_region="${DEFAULT_EXPRESSVPN_REGIONS[$(((i-1)%total))]}"
-    read -rp "Region for instance ${i} [${default_region}]: " region
-    region="${region:-$default_region}"
+    if [[ "$choose_specific_region" =~ ^[Yy]$ ]]; then
+      read -rp "Region for instance ${i} [${default_region}]: " region
+      region="${region:-$default_region}"
+    else
+      region="$default_region"
+    fi
     EXPRESSVPN_REGIONS+=("$region")
   done
 }
