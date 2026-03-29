@@ -19,4 +19,5 @@ else
 fi
 
 echo "ExpressVPN files installed."
-echo "Run with: export CODE=<activation-key>; export SERVER='<region>'; cd /opt/expressvpn && ./expressvpn.sh"
+chmod +x /opt/expressvpn/start.sh 2>/dev/null || true
+echo "Run with: export CODE=<activation-key>; export SERVER='<region>'; cd /opt/expressvpn && ./start.sh"

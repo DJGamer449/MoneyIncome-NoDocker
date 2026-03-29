@@ -55,8 +55,8 @@ ensure_expressvpn_installed() {
     echo "expressvpnctl not found. Expected at /usr/local/bin/expressvpnctl"
     exit 1
   }
-  [[ -x /opt/expressvpn/expressvpn.sh ]] || {
-    echo "/opt/expressvpn/expressvpn.sh not found or not executable"
+  [[ -x /opt/expressvpn/start.sh ]] || {
+    echo "/opt/expressvpn/start.sh not found or not executable"
     exit 1
   }
 }
@@ -95,19 +95,19 @@ create_expressvpn_service_script() {
 #!/bin/sh
 #
 ### BEGIN INIT INFO
-# Provides:          expressvpn-service-${instance_name}
+# Provides:          expressvpn-service
 # Required-Start:    \$local_fs \$remote_fs
 # Required-Stop:     \$local_fs \$remote_fs
 # Default-Start:     2 3 4 5
 # Default-Stop:      0 1 6
-# Short-Description: ExpressVPN service (${instance_name})
+# Short-Description: ExpressVPN service
 # Description: This script starts the ExpressVPN Daemon
 ### END INIT INFO
 
 [ -f /lib/lsb/init-functions ] && . /lib/lsb/init-functions
 
 DAEMON=/opt/expressvpn/bin/expressvpn-daemon
-NAME=expressvpn-service-${instance_name}
+NAME="expressvpn-service-${INSTANCE_ID:-default}"
 STOP_SIGNAL=INT
 PIDFILE="/var/run/\$NAME.pid"
 COMMON_OPTS="--quiet --pidfile \$PIDFILE"
