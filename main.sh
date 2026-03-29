@@ -400,11 +400,9 @@ run_traff() {
   create_netns_with_veth "traffns" "traff" "${NS_INDEX[traffns]}"
   start_expressvpn_in_ns "traffns" "${EXPRESSVPN_REGIONS[0]}"
   local RUNTIME="/tmp/traff_runtime.sh"
-  local LIB_RUNTIME="/tmp/direct_expressvpn_lib.sh"
   cp "$TRAFF_SCRIPT" "$RUNTIME"
-  cp "$BASE_DIR/direct_expressvpn_lib.sh" "$LIB_RUNTIME"
   echo "Starting Traff..."
-  sudo BASE_DIR=/tmp TRAFF_TOKEN="$TRAFF_TOKEN" BASE_NS=traffns VETH_PREFIX=traff WORKDIR=/tmp/traff_multi \
+  sudo BASE_DIR="$BASE_DIR" TRAFF_TOKEN="$TRAFF_TOKEN" BASE_NS=traffns VETH_PREFIX=traff WORKDIR=/tmp/traff_multi \
     bash "$RUNTIME" proxies.txt &
   PIDS+=($!)
 }
@@ -414,12 +412,10 @@ run_packetstream() {
   create_netns_with_veth "psns" "ps" "${NS_INDEX[psns]}"
   start_expressvpn_in_ns "psns" "${EXPRESSVPN_REGIONS[0]}"
   local RUNTIME="/tmp/ps_runtime.sh"
-  local LIB_RUNTIME="/tmp/direct_expressvpn_lib.sh"
   cp "$TRAFF_SCRIPT" "$RUNTIME"
-  cp "$BASE_DIR/direct_expressvpn_lib.sh" "$LIB_RUNTIME"
   sed -i "s|APP_CMD=.*|APP_CMD=( env CID=\"$PS_TOKEN\" PS_IS_DOCKER=true ./app/psclient )|g" "$RUNTIME"
   echo "Starting PacketStream..."
-  sudo BASE_DIR=/tmp BASE_NS=psns VETH_PREFIX=ps WORKDIR=/tmp/ps_multi \
+  sudo BASE_DIR="$BASE_DIR" BASE_NS=psns VETH_PREFIX=ps WORKDIR=/tmp/ps_multi \
     bash "$RUNTIME" proxies.txt &
   PIDS+=($!)
 }

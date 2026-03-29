@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ROOT_DIR="${BASE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 BASE_NS="${BASE_NS:-appns}"
 VETH_PREFIX="${VETH_PREFIX:-app}"
 WORKDIR="${WORKDIR:-/tmp/${BASE_NS}_multi}"
-EXPRESSVPN_BIN_DIR="${EXPRESSVPN_BIN_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/app/expressvpn/bin}"
+EXPRESSVPN_BIN_DIR="${EXPRESSVPN_BIN_DIR:-$ROOT_DIR/app/expressvpn/bin}"
 EXPRESSVPN_DAEMON="${EXPRESSVPN_DAEMON:-$EXPRESSVPN_BIN_DIR/expressvpn-daemon}"
 EXPRESSVPN_CTL="${EXPRESSVPN_CTL:-$EXPRESSVPN_BIN_DIR/expressvpnctl}"
 EXPRESSVPN_PROTOCOL="${EXPRESSVPN_PROTOCOL:-lightway_udp}"
