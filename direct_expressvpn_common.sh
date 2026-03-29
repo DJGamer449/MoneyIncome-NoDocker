@@ -99,6 +99,18 @@ prepare_expressvpn_instance() {
   fi
 
   chmod +x "$inst_dir/bin"/* 2>/dev/null || true
+  cat > "$inst_dir/.bashrc" <<EOF
+export HOME="$inst_dir"
+export INSTANCE_ROOT="$inst_dir"
+export PATH="$inst_dir/bin:\$PATH"
+export LD_LIBRARY_PATH="$inst_dir/lib:\${LD_LIBRARY_PATH:-}"
+export EXPRESSVPN_ETC="$inst_dir/etc"
+export EXPRESSVPN_VAR="$inst_dir/var"
+export EXPRESSVPN_SHARE="$inst_dir/share"
+export EXPRESSVPN_PLUGINS="$inst_dir/plugins"
+export EXPRESSVPN_QML="$inst_dir/qml"
+alias expressvpnctl="$inst_dir/bin/expressvpnctl"
+EOF
 }
 
 connect_expressvpn() {
@@ -113,10 +125,10 @@ connect_expressvpn() {
     mkdir -p /expressvpn
     mountpoint -q /expressvpn || mount --bind '$inst_dir/script' /expressvpn
     chmod +x /expressvpn/start.sh
-    export PATH='$inst_dir/bin':\$PATH
-    export HOME='$inst_dir'
+    source '$inst_dir/.bashrc'
     export CODE='$EXPRESSVPN_ACTIVATION_CODE'
     export SERVER='$region'
+    command -v expressvpnctl >/dev/null 2>&1 || { echo 'expressvpnctl not found in instance PATH'; exit 1; }
     /expressvpn/start.sh
   " >>"$log_file" 2>&1
 }
@@ -125,6 +137,7 @@ start_app_instance() {
   local idx="$1"
   local region="$2"
   local ns="${BASE_NS}${idx}"
+  local inst_dir="/opt/expressvpn/${ns}"
   local inst_home="$WORKDIR/${APP_NAME}_${idx}"
   local app_log="$WORKDIR/${APP_NAME}_${idx}.log"
   local pid_file="$WORKDIR/${APP_NAME}_${idx}.pid"
@@ -132,6 +145,7 @@ start_app_instance() {
   mkdir -p "$inst_home"
 
   ip netns exec "$ns" bash -lc "
+    source '$inst_dir/.bashrc'
     export HOME='$inst_home'
     cd '$(pwd)'
     nohup bash -lc '$APP_CMD' >'$app_log' 2>&1 &
@@ -139,7 +153,7 @@ start_app_instance() {
   "
 
   local ip_check
-  ip_check="$(ip netns exec "$ns" bash -lc "curl -fsS --max-time 15 ifconfig.me || true")"
+  ip_check="$(ip netns exec "$ns" bash -lc "source '$inst_dir/.bashrc'; curl -fsS --max-time 15 ifconfig.me || true")"
   echo "[$APP_NAME-$idx] netns=$ns region=$region ip=${ip_check:-unknown}"
 }
 
