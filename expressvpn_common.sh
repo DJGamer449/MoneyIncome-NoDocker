@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 REGIONS=(
 usa-san-francisco usa-new-jersey-2 usa-lincoln-park usa-houston usa-tampa-1 usa-new-jersey-3 usa-brooklyn usa-denver
@@ -44,9 +45,11 @@ argentina turkey norway hungary
 )
 
 install_expressvpn_files() {
+  local src_dir="$COMMON_DIR/app/expressvpn"
+  [[ -d "$src_dir" ]] || { echo "ExpressVPN source dir not found: $src_dir"; exit 1; }
   mkdir -p /opt/expressvpn
-  cp -r ./app/expressvpn/* /opt/expressvpn/
-  install -m 0755 ./app/expressvpn/bin/expressvpnctl /usr/local/bin/expressvpnctl
+  cp -r "$src_dir"/* /opt/expressvpn/
+  install -m 0755 "$src_dir/bin/expressvpnctl" /usr/local/bin/expressvpnctl
 }
 
 setup_ns() {
@@ -62,7 +65,7 @@ setup_ns() {
   ip netns exec "$ns" ip link set "$ns_if" up
   ip netns exec "$ns" ip route replace default via "10.210.${idx}.1" dev "$ns_if"
   mkdir -p "/etc/netns/$ns"
-  printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > "/etc/netns/$ns/resolv.conf"
+  printf 'nameserver 100.64.100.1\nnameserver 8.8.8.8\nnameserver 1.1.1.1\n' > "/etc/netns/$ns/resolv.conf"
   iptables -t nat -C POSTROUTING -s "10.210.${idx}.0/24" -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -s "10.210.${idx}.0/24" -j MASQUERADE
   groupadd -f expressvpn
   ip netns exec "$ns" groupadd -f expressvpn || true

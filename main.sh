@@ -143,13 +143,39 @@ cleanup() {
   EXITING=1
   echo -e "\nStopping all running services..."
   stop_tracked_pids
+
+  # Kill any leftover processes still running inside managed namespaces
+  local ns
+  while read -r ns _; do
+    [[ -n "${ns:-}" ]] || continue
+    if [[ "$ns" =~ ^(earnns|traffns|psns|castarns|urns|wipterns|honeyns|mysterns)[0-9]*$ ]]; then
+      sudo ip netns pids "$ns" 2>/dev/null | xargs -r sudo kill -TERM 2>/dev/null || true
+      sleep 0.2
+      sudo ip netns pids "$ns" 2>/dev/null | xargs -r sudo kill -KILL 2>/dev/null || true
+    fi
+  done < <(ip netns list 2>/dev/null)
+
+  # Kill straggler ExpressVPN runtimes
+  sudo pkill -f '/opt/expressvpn/start.sh' 2>/dev/null || true
+  sudo pkill -f 'expressvpnctl' 2>/dev/null || true
+
   for subnet in "${CREATED_SUBNETS[@]:-}"; do
     sudo iptables -t nat -D POSTROUTING -s "$subnet" -o "$HOST_IF" -j MASQUERADE 2>/dev/null || true
   done
+
+  # Delete all managed namespaces (including per-instance namespaces created by direct_* scripts)
   for ns in "${CREATED_NETNS[@]:-}"; do
     sudo ip netns delete "$ns" 2>/dev/null || true
     sudo rm -rf /etc/netns/"$ns" 2>/dev/null || true
   done
+  while read -r ns _; do
+    [[ -n "${ns:-}" ]] || continue
+    if [[ "$ns" =~ ^(earnns|traffns|psns|castarns|urns|wipterns|honeyns|mysterns)[0-9]*$ ]]; then
+      sudo ip netns delete "$ns" 2>/dev/null || true
+      sudo rm -rf /etc/netns/"$ns" 2>/dev/null || true
+    fi
+  done < <(ip netns list 2>/dev/null)
+
   echo "All services and network namespaces stopped/removed."
   exit 0
 }

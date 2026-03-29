@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
-source "$(cd "$(dirname "$0")" && pwd)/expressvpn_common.sh"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/expressvpn_common.sh"
 APP_MODE="${APP_MODE:-traff}"
 TRAFF_TOKEN="${TRAFF_TOKEN:-nblQB8tNIf6aj1Hs51/SJXqflMy0x1jPnsT6kVcYB8s=}"
 PS_TOKEN="${PS_TOKEN:-}"
@@ -36,7 +37,7 @@ main(){
     ns="${BASE_NS}${i}"; region="$(region_for_idx "$i")"
     setup_ns "$ns" "$i" "$VETH_PREFIX"
     start_expressvpn_in_ns "$ns" "$code" "$region" "$i" "$WORKDIR/expressvpn_${i}.log"
-    ip netns exec "$ns" bash -lc "nohup $cmd >'$WORKDIR/app_${i}.log' 2>&1 &"
+    ip netns exec "$ns" bash -lc "cd '$SCRIPT_DIR' && nohup $cmd >'$WORKDIR/app_${i}.log' 2>&1 &"
     echo "[$i] started mode=$APP_MODE ns=$ns region=$region"
   done
   wait
