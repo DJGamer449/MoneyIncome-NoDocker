@@ -36,8 +36,8 @@ require_root() {
     echo "Run as root: sudo $0"
     exit 1
   fi
+  [[ -d "./app/expressvpn" ]] || { echo "Missing ./app/expressvpn"; exit 1; }
   [[ -d "./app/expressvpn/bin" ]] || { echo "Missing ./app/expressvpn/bin"; exit 1; }
-  [[ -f "./app/expressvpn/expressvpn-service" ]] || { echo "Missing ./app/expressvpn/expressvpn-service"; exit 1; }
   [[ -d "./app/expressvpn/script" ]] || { echo "Missing ./app/expressvpn/script"; exit 1; }
   [[ -n "$EXPRESSVPN_ACTIVATION_CODE" ]] || { echo "EXPRESSVPN_ACTIVATION_CODE is empty"; exit 1; }
   [[ "$INSTANCE_COUNT" =~ ^[0-9]+$ ]] || { echo "INSTANCE_COUNT must be integer"; exit 1; }
@@ -88,13 +88,20 @@ prepare_expressvpn_instance() {
   local ns="${BASE_NS}${idx}"
   local inst_dir="/opt/expressvpn/${ns}"
 
-  mkdir -p "$inst_dir/bin" "$inst_dir/script" "$inst_dir/etc/init.d" "/etc/netns/$ns/init.d"
-  cp -a ./app/expressvpn/bin/. "$inst_dir/bin/"
-  cp -a ./app/expressvpn/script/. "$inst_dir/script/"
-  install -m 0755 ./app/expressvpn/expressvpn-service "$inst_dir/etc/init.d/expressvpn-service"
-  install -m 0755 ./app/expressvpn/expressvpn-service "/etc/netns/$ns/init.d/expressvpn-service"
+  mkdir -p "$inst_dir" "/etc/netns/$ns/init.d"
+  cp -a ./app/expressvpn/. "$inst_dir/"
 
-  chmod +x "$inst_dir/bin"/* || true
+  # Keep per-instance init service copy.
+  if [[ -f "$inst_dir/expressvpn-service" ]]; then
+    mkdir -p "$inst_dir/etc/init.d"
+    install -m 0755 "$inst_dir/expressvpn-service" "$inst_dir/etc/init.d/expressvpn-service"
+    install -m 0755 "$inst_dir/expressvpn-service" "/etc/netns/$ns/init.d/expressvpn-service"
+  fi
+
+  # Put binaries in default command path as requested.
+  if [[ -d "$inst_dir/bin" ]]; then
+    find "$inst_dir/bin" -maxdepth 1 -type f -exec install -m 0755 {} /usr/bin/ \;
+  fi
 }
 
 connect_expressvpn() {
