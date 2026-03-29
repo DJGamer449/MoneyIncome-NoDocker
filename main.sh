@@ -52,8 +52,17 @@ ask_global_inputs() {
   read -rp "How many instances per app? " INSTANCE_COUNT
   [[ "$INSTANCE_COUNT" =~ ^[0-9]+$ ]] || { echo "Invalid instance count"; exit 1; }
 
-  REGIONS_CSV="$(regions_csv_from_count "$INSTANCE_COUNT")"
-  echo "Assigned regions (cycled):"
+  local default_csv region i idx custom_regions=()
+  default_csv="$(regions_csv_from_count "$INSTANCE_COUNT")"
+  echo "Set region one-by-one for each instance (press Enter to use suggested default)."
+  for ((i=1; i<=INSTANCE_COUNT; i++)); do
+    idx=$(( (i-1) % ${#REGIONS[@]} ))
+    read -rp "Region #$i [${REGIONS[$idx]}]: " region
+    region="${region:-${REGIONS[$idx]}}"
+    custom_regions+=("$region")
+  done
+  IFS=',' REGIONS_CSV="${custom_regions[*]}"
+  echo "Final region assignment:"
   tr ',' '\n' <<<"$REGIONS_CSV" | nl -ba
 
   read -rp "Traff token (optional): " TRAFF_TOKEN
@@ -98,7 +107,7 @@ while true; do
   case "$opt" in
     1) run_app "direct_earnapp.sh" ;;
     2) run_app "direct_traff.sh" TRAFF_TOKEN="$TRAFF_TOKEN" ;;
-    3) run_app "direct_traff.sh" TRAFF_TOKEN="$PS_TOKEN" ;;
+    3) run_app "direct_packetstream.sh" PS_TOKEN="$PS_TOKEN" ;;
     4) run_app "direct_urnetwork.sh" ;;
     5) run_app "direct_castar.sh" CASTAR_KEY="$CASTAR_KEY" ;;
     6) run_app "direct_honeygain.sh" HONEYGAIN_EMAIL="$HONEYGAIN_EMAIL" HONEYGAIN_PASSWORD="$HONEYGAIN_PASSWORD" ;;
@@ -107,7 +116,7 @@ while true; do
     9)
       run_app "direct_earnapp.sh"
       run_app "direct_traff.sh" TRAFF_TOKEN="$TRAFF_TOKEN"
-      run_app "direct_traff.sh" TRAFF_TOKEN="$PS_TOKEN"
+      run_app "direct_packetstream.sh" PS_TOKEN="$PS_TOKEN"
       run_app "direct_urnetwork.sh"
       run_app "direct_castar.sh" CASTAR_KEY="$CASTAR_KEY"
       run_app "direct_honeygain.sh" HONEYGAIN_EMAIL="$HONEYGAIN_EMAIL" HONEYGAIN_PASSWORD="$HONEYGAIN_PASSWORD"

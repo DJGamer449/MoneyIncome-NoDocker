@@ -12,6 +12,25 @@ WORKDIR="${WORKDIR:-/tmp/${APP_NAME}_expressvpn}"
 
 mkdir -p "$WORKDIR"
 
+prompt_if_missing_inputs() {
+  if [[ -z "${EXPRESSVPN_ACTIVATION_CODE}" ]]; then
+    read -rp "ExpressVPN activation code: " EXPRESSVPN_ACTIVATION_CODE
+  fi
+
+  if [[ -z "${INSTANCE_COUNT}" || ! "${INSTANCE_COUNT}" =~ ^[0-9]+$ ]]; then
+    read -rp "Instance count: " INSTANCE_COUNT
+  fi
+
+  if [[ -z "${REGIONS_CSV}" ]]; then
+    local i region regions=()
+    for ((i=1; i<=INSTANCE_COUNT; i++)); do
+      read -rp "Region for instance ${i}: " region
+      regions+=("$region")
+    done
+    IFS=',' REGIONS_CSV="${regions[*]}"
+  fi
+}
+
 require_root() {
   if [[ ${EUID} -ne 0 ]]; then
     echo "Run as root: sudo $0"
@@ -121,11 +140,13 @@ start_app_instance() {
 }
 
 main() {
+  prompt_if_missing_inputs
   require_root
-  mapfile -t REGIONS < <(tr ',' '\n' <<<"$REGIONS_CSV" | sed 's/^ *//;s/ *$//' | sed '/^$/d')
+  mapfile -t REGIONS < <(tr ',' '\n' <<<"$REGIONS_CSV" | sed 's/^ *//;s/ *$//' | sed '/^$/d') || true
   (( ${#REGIONS[@]} > 0 )) || { echo "No regions supplied via REGIONS_CSV"; exit 1; }
 
   local i ri region
+  echo "Starting ${APP_NAME} with ${INSTANCE_COUNT} isolated netns instances..."
   for ((i=1; i<=INSTANCE_COUNT; i++)); do
     ri=$(( (i-1) % ${#REGIONS[@]} ))
     region="${REGIONS[$ri]}"
