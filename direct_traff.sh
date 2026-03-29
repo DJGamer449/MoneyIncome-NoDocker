@@ -71,6 +71,11 @@ start_expressvpn_and_app() {
   ns="$(create_ns_with_veth "$idx")"
   region="$(region_for_instance "$idx")"
   local vpn_pidfile="$WORKDIR/expressvpn_${idx}.pid" vpn_logfile="$WORKDIR/expressvpn_${idx}.log"
+  local svc_script="$WORKDIR/expressvpn-service-${idx}"
+  create_expressvpn_service_script "$svc_script" "$idx"
+
+  ip netns exec "$ns" bash -lc "mkdir -p /etc/init.d && cp '$svc_script' /etc/init.d/expressvpn-service-${idx} && chmod 755 /etc/init.d/expressvpn-service-${idx}"
+  ip netns exec "$ns" /etc/init.d/expressvpn-service-${idx} start || true
 
   ip netns exec "$ns" bash -lc "
     export CODE='$CODE'

@@ -86,3 +86,61 @@ setup_ns_expressvpn_group() {
   local ns="$1"
   ip netns exec "$ns" bash -lc 'getent group expressvpn >/dev/null 2>&1 || groupadd -r expressvpn || true'
 }
+
+
+create_expressvpn_service_script() {
+  local target="$1"
+  local instance_name="$2"
+  cat > "$target" <<EOF
+#!/bin/sh
+#
+### BEGIN INIT INFO
+# Provides:          expressvpn-service-${instance_name}
+# Required-Start:    \$local_fs \$remote_fs
+# Required-Stop:     \$local_fs \$remote_fs
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: ExpressVPN service (${instance_name})
+# Description: This script starts the ExpressVPN Daemon
+### END INIT INFO
+
+[ -f /lib/lsb/init-functions ] && . /lib/lsb/init-functions
+
+DAEMON=/opt/expressvpn/bin/expressvpn-daemon
+NAME=expressvpn-service-${instance_name}
+STOP_SIGNAL=INT
+PIDFILE="/var/run/\$NAME.pid"
+COMMON_OPTS="--quiet --pidfile \$PIDFILE"
+export LD_LIBRARY_PATH=/opt/expressvpn/lib
+
+do_start() {
+    start-stop-daemon --start \$COMMON_OPTS --oknodo \
+        --exec \$DAEMON --make-pidfile --background
+}
+
+do_stop() {
+    start-stop-daemon --stop \$COMMON_OPTS --signal \$STOP_SIGNAL --oknodo --remove-pidfile
+}
+
+do_status() {
+    start-stop-daemon --status \$COMMON_OPTS
+    exit_status=\$?
+    case "\$exit_status" in
+    0) echo "Program '\$NAME' is running." ;;
+    1) echo "Program '\$NAME' is not running and the pid file exists." ;;
+    3) echo "Program '\$NAME' is not running." ;;
+    4) echo "Unable to determine program '\$NAME' status." ;;
+    esac
+}
+
+case "\$1" in
+start) do_start ;;
+stop) do_stop ;;
+status) do_status ;;
+*) echo "Usage: \$0 {start|stop|status}"; exit 5 ;;
+esac
+
+exit 0
+EOF
+  chmod 755 "$target"
+}
