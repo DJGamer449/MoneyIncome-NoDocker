@@ -314,9 +314,10 @@ run_traff() {
   create_netns_with_veth "traffns" "traff" "${NS_INDEX[traffns]}"
   local RUNTIME="/tmp/traff_runtime.sh"
   cp "$TRAFF_SCRIPT" "$RUNTIME"
+  cp "$BASE_DIR/expressvpn_common.sh" /tmp/expressvpn_common.sh
   sed -i "s|--token \".*\"|--token \"$TRAFF_TOKEN\"|g" "$RUNTIME"
   echo "Starting Traff..."
-  sudo BASE_NS=traffns VETH_PREFIX=traff WORKDIR=/tmp/traff_multi CODE="$EXPRESSVPN_CODE" INSTANCE_COUNT="$EXPRESSVPN_INSTANCE_COUNT" \
+  sudo BASE_NS=traffns VETH_PREFIX=traff WORKDIR=/tmp/traff_multi CODE="$EXPRESSVPN_CODE" INSTANCE_COUNT="$EXPRESSVPN_INSTANCE_COUNT" EXPRESSVPN_COMMON_PATH="/tmp/expressvpn_common.sh" \
     bash "$RUNTIME" &
   PIDS+=($!)
 }
@@ -326,9 +327,10 @@ run_packetstream() {
   create_netns_with_veth "psns" "ps" "${NS_INDEX[psns]}"
   local RUNTIME="/tmp/ps_runtime.sh"
   cp "$TRAFF_SCRIPT" "$RUNTIME"
+  cp "$BASE_DIR/expressvpn_common.sh" /tmp/expressvpn_common.sh
   sed -i "s|APP_CMD=.*|APP_CMD=( env CID=\"$PS_TOKEN\" PS_IS_DOCKER=true ./app/psclient )|g" "$RUNTIME"
   echo "Starting PacketStream..."
-  sudo BASE_NS=psns VETH_PREFIX=ps WORKDIR=/tmp/ps_multi CODE="$EXPRESSVPN_CODE" INSTANCE_COUNT="$EXPRESSVPN_INSTANCE_COUNT" \
+  sudo BASE_NS=psns VETH_PREFIX=ps WORKDIR=/tmp/ps_multi CODE="$EXPRESSVPN_CODE" INSTANCE_COUNT="$EXPRESSVPN_INSTANCE_COUNT" EXPRESSVPN_COMMON_PATH="/tmp/expressvpn_common.sh" \
     bash "$RUNTIME" &
   PIDS+=($!)
 }
@@ -338,9 +340,10 @@ run_castar() {
   create_netns_with_veth "castarns" "castar" "${NS_INDEX[castarns]}"
   local RUNTIME="/tmp/castar_runtime.sh"
   cp "$TRAFF_SCRIPT" "$RUNTIME"
+  cp "$BASE_DIR/expressvpn_common.sh" /tmp/expressvpn_common.sh
   sed -i "s|APP_CMD=.*|APP_CMD=( ./app/CastarSDK -key=\"$CASTAR_KEY\" )|g" "$RUNTIME"
   echo "Starting Castar..."
-  sudo BASE_NS=castarns VETH_PREFIX=castar WORKDIR=/tmp/castar_multi CODE="$EXPRESSVPN_CODE" INSTANCE_COUNT="$EXPRESSVPN_INSTANCE_COUNT" \
+  sudo BASE_NS=castarns VETH_PREFIX=castar WORKDIR=/tmp/castar_multi CODE="$EXPRESSVPN_CODE" INSTANCE_COUNT="$EXPRESSVPN_INSTANCE_COUNT" EXPRESSVPN_COMMON_PATH="/tmp/expressvpn_common.sh" \
     bash "$RUNTIME" &
   PIDS+=($!)
 }

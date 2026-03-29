@@ -9,7 +9,22 @@ FORCE_NS_DNS="${FORCE_NS_DNS:-1}"
 NS_DNS_LIST="${NS_DNS_LIST:-1.1.1.1 8.8.8.8}"
 mkdir -p "$WORKDIR"
 
-source "$(cd "$(dirname "$0")" && pwd)/expressvpn_common.sh"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+COMMON_CANDIDATES=(
+  "${EXPRESSVPN_COMMON_PATH:-}"
+  "$SCRIPT_DIR/expressvpn_common.sh"
+  "$(pwd)/expressvpn_common.sh"
+)
+for candidate in "${COMMON_CANDIDATES[@]}"; do
+  [[ -n "$candidate" && -f "$candidate" ]] || continue
+  # shellcheck disable=SC1090
+  source "$candidate"
+  break
+done
+if ! declare -F ensure_expressvpn_installed >/dev/null 2>&1; then
+  echo "expressvpn_common.sh not found. Set EXPRESSVPN_COMMON_PATH or place the file next to this script."
+  exit 1
+fi
 
 require_root() {
   [[ $EUID -eq 0 ]] || { echo "Run as root."; exit 1; }
