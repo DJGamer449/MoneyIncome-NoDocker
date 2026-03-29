@@ -8,7 +8,7 @@ VETH_PREFIX="${VETH_PREFIX:-xveth}"
 WORKDIR="${WORKDIR:-/tmp/expressvpn_multi}"
 INSTANCES="${INSTANCES:-}"
 CODE="${CODE:-}"
-PROTOCOL="${PROTOCOL:-lightwayudp}"
+PROTOCOL="${PROTOCOL:-openvpnudp}"
 EXPRESSVPNCTL="${EXPRESSVPNCTL:-$(cd "$(dirname "$0")" && pwd)/app/expressvpn/bin/expressvpnctl}"
 EXPRESSVPN_DAEMON="${EXPRESSVPN_DAEMON:-$(cd "$(dirname "$0")" && pwd)/app/expressvpn/bin/expressvpn-daemon}"
 
@@ -159,6 +159,21 @@ start_instance_supervisor() {
       "$CTL" login <(echo "$ACTIVATION_CODE") >"$INST_HOME/login.log" 2>&1 || true
       "$CTL" connect >"$INST_HOME/connect.log" 2>&1
       "$CTL" status >"$INST_HOME/status.log" 2>&1 || true
+
+      connected=0
+      for _ in $(seq 1 20); do
+        if "$CTL" get connectionstate 2>/dev/null | grep -q "^Connected$" && ip link show tun0 >/dev/null 2>&1; then
+          connected=1
+          break
+        fi
+        sleep 1
+      done
+      if [[ "$connected" -ne 1 ]]; then
+        echo "ExpressVPN reported connected but tun0 was not found in namespace." >"$INST_HOME/tun0-error.log"
+        "$CTL" status >>"$INST_HOME/tun0-error.log" 2>&1 || true
+        ip link show >>"$INST_HOME/tun0-error.log" 2>&1 || true
+        exit 1
+      fi
 
       cd "'"$(pwd)"'"
       app_cmd="$(printf "%s" "$APP_CMD_B64" | base64 -d)"
