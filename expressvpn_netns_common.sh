@@ -96,9 +96,13 @@ configure_expressvpn_in_ns() {
 
     nohup '$EVPN_DAEMON' >'$workdir/expressvpn_daemon_${idx}.log' 2>&1 &
     sleep 2
-    '$EVPN_CTL' background enable
-    '$EVPN_CTL' set networklock true
-    '$EVPN_CTL' set auto_connect true
+    '$EVPN_CTL' background enable || true
+
+    # Different expressvpnctl builds use slightly different preference keys.
+    '$EVPN_CTL' set networklock true || '$EVPN_CTL' set network-lock true || true
+    '$EVPN_CTL' set auto_connect true || '$EVPN_CTL' set auto-connect true || true
+
+    # Keep these required for per-instance routing behavior.
     '$EVPN_CTL' set region '$region'
     '$EVPN_CTL' set protocol '$protocol'
     '$EVPN_CTL' login <(echo '$activation_code')
