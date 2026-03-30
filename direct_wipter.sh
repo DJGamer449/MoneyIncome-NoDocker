@@ -7,7 +7,8 @@ WORKDIR="${WORKDIR:-/tmp/wipter_expressvpn}"
 EXPRESSVPN_ROOT="${EXPRESSVPN_ROOT:-/opt/expressvpn/wipter_expressvpn}"
 mkdir -p "$WORKDIR" "$EXPRESSVPN_ROOT"
 
-source "$(dirname "$0")/app/expressvpn/script/netns-instance.sh"
+SCRIPT_HOME="${PROJECT_DIR:-$(cd "$(dirname "$0")" && pwd)}"
+source "$SCRIPT_HOME/app/expressvpn/script/netns-instance.sh"
 
 require_root() {
   [[ $EUID -eq 0 ]] || { echo "Run as root"; exit 1; }
@@ -65,9 +66,15 @@ cleanup() {
 main() {
   require_root
   setup_nat_once
-  read -r -p "Enter ExpressVPN activation key: " ACTIVATION_KEY
+  ACTIVATION_KEY="${EXPRESSVPN_ACTIVATION_KEY:-}"
+  COUNT="${INSTANCE_COUNT:-}"
+  if [[ -z "$ACTIVATION_KEY" ]]; then
+    read -r -p "Enter ExpressVPN activation key: " ACTIVATION_KEY
+  fi
   [[ -n "$ACTIVATION_KEY" ]] || { echo "Activation key is required"; exit 1; }
-  read -r -p "How many instances do you want to run? " COUNT
+  if [[ -z "$COUNT" ]]; then
+    read -r -p "How many instances do you want to run? " COUNT
+  fi
   [[ "$COUNT" =~ ^[0-9]+$ ]] || { echo "Invalid count"; exit 1; }
   (( COUNT > 0 )) || { echo "Count must be > 0"; exit 1; }
   for ((i=1;i<=COUNT;i++)); do

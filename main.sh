@@ -33,6 +33,8 @@ CASTAR_KEY=""
 WIPTER_EMAIL=""
 WIPTER_PASSWORD=""
 HONEYGAIN_ACCOUNTS=()
+EXPRESSVPN_KEY=""
+EXPRESSVPN_INSTANCES=""
 
 # maps ns name -> numeric index used for subnet allocation
 declare -A NS_INDEX=(
@@ -160,6 +162,8 @@ ask_tokens() {
   read -rp "Enter Traff token (or leave blank): " TRAFF_TOKEN
   read -rp "Enter PacketStream CID token (or leave blank): " PS_TOKEN
   read -rp "Enter Castar Key (or leave blank): " CASTAR_KEY
+  read -rp "Enter ExpressVPN activation key (or leave blank to be asked per script): " EXPRESSVPN_KEY
+  read -rp "Default number of instances for VPN apps (or leave blank): " EXPRESSVPN_INSTANCES
   echo "------ Wipter Credentials ------"
   read -rp "Enter Wipter Email (or leave blank): " WIPTER_EMAIL
   read -rsp "Enter Wipter Password (hidden, leave blank to skip): " WIPTER_PASSWORD
@@ -295,7 +299,7 @@ run_earnapp() {
   create_netns_with_veth "earnns" "earn" "${NS_INDEX[earnns]}"
   echo "Starting EarnApp..."
   sudo BASE_NS=earnns VETH_PREFIX=earn WORKDIR=/tmp/earnapp_multi \
-    bash "$EARNAPP_SCRIPT" &
+    PROJECT_DIR="$BASE_DIR" EXPRESSVPN_ACTIVATION_KEY="$EXPRESSVPN_KEY" INSTANCE_COUNT="$EXPRESSVPN_INSTANCES" bash "$EARNAPP_SCRIPT" &
   PIDS+=($!)
 }
 
@@ -307,7 +311,7 @@ run_traff() {
   sed -i "s|--token \".*\"|--token \"$TRAFF_TOKEN\"|g" "$RUNTIME"
   echo "Starting Traff..."
   sudo BASE_NS=traffns VETH_PREFIX=traff WORKDIR=/tmp/traff_multi \
-    bash "$RUNTIME" &
+    PROJECT_DIR="$BASE_DIR" EXPRESSVPN_ACTIVATION_KEY="$EXPRESSVPN_KEY" INSTANCE_COUNT="$EXPRESSVPN_INSTANCES" bash "$RUNTIME" &
   PIDS+=($!)
 }
 
@@ -319,7 +323,7 @@ run_packetstream() {
   sed -i "s|APP_CMD=.*|APP_CMD=( env CID=\"$PS_TOKEN\" PS_IS_DOCKER=true ./app/psclient )|g" "$RUNTIME"
   echo "Starting PacketStream..."
   sudo BASE_NS=psns VETH_PREFIX=ps WORKDIR=/tmp/ps_multi \
-    bash "$RUNTIME" &
+    PROJECT_DIR="$BASE_DIR" EXPRESSVPN_ACTIVATION_KEY="$EXPRESSVPN_KEY" INSTANCE_COUNT="$EXPRESSVPN_INSTANCES" bash "$RUNTIME" &
   PIDS+=($!)
 }
 
@@ -331,7 +335,7 @@ run_castar() {
   sed -i "s|APP_CMD=.*|APP_CMD=( ./app/CastarSDK -key=\"$CASTAR_KEY\" )|g" "$RUNTIME"
   echo "Starting Castar..."
   sudo BASE_NS=castarns VETH_PREFIX=castar WORKDIR=/tmp/castar_multi \
-    bash "$RUNTIME" &
+    PROJECT_DIR="$BASE_DIR" EXPRESSVPN_ACTIVATION_KEY="$EXPRESSVPN_KEY" INSTANCE_COUNT="$EXPRESSVPN_INSTANCES" bash "$RUNTIME" &
   PIDS+=($!)
 }
 
@@ -342,7 +346,7 @@ run_urnetwork() {
     ./app/provider auth
   fi
   sudo BASE_NS=urns VETH_PREFIX=ur WORKDIR=/tmp/ur_multi \
-    bash "$UR_SCRIPT" &
+    PROJECT_DIR="$BASE_DIR" EXPRESSVPN_ACTIVATION_KEY="$EXPRESSVPN_KEY" INSTANCE_COUNT="$EXPRESSVPN_INSTANCES" bash "$UR_SCRIPT" &
   PIDS+=($!)
 }
 
@@ -359,7 +363,7 @@ run_wipter() {
   create_netns_with_veth "wipterns" "wipter" "${NS_INDEX[wipterns]}"
   echo "Starting Wipter..."
   sudo BASE_NS=wipterns VETH_PREFIX=wipter WORKDIR=/tmp/wipter_multi WIPTER_EMAIL="$WIPTER_EMAIL" WIPTER_PASSWORD="$WIPTER_PASSWORD" \
-    bash "$WIPTER_SCRIPT" &
+    PROJECT_DIR="$BASE_DIR" EXPRESSVPN_ACTIVATION_KEY="$EXPRESSVPN_KEY" INSTANCE_COUNT="$EXPRESSVPN_INSTANCES" bash "$WIPTER_SCRIPT" &
   PIDS+=($!)
 }
 
@@ -383,7 +387,7 @@ run_honeygain() {
   account_blob=$(printf '%s\n' "${HONEYGAIN_ACCOUNTS[@]}")
   echo "Starting Honeygain with ${#HONEYGAIN_ACCOUNTS[@]} account(s)..."
   sudo BASE_NS=honeyns VETH_PREFIX=honey WORKDIR=/tmp/honeygain_multi HONEYGAIN_ACCOUNTS="$account_blob" \
-    bash "$HONEYGAIN_SCRIPT" &
+    PROJECT_DIR="$BASE_DIR" EXPRESSVPN_ACTIVATION_KEY="$EXPRESSVPN_KEY" INSTANCE_COUNT="$EXPRESSVPN_INSTANCES" bash "$HONEYGAIN_SCRIPT" &
   PIDS+=($!)
 }
 
@@ -395,7 +399,7 @@ run_mysterium() {
   echo "Starting Mysterium node instances..."
   sudo BASE_NS=mysterns VETH_PREFIX=myster WORKDIR=/tmp/mysterium_multi \
     MYST_BASE_DIR="$BASE_DIR/myst" \
-    bash "$MYSTERIUM_SCRIPT" &
+    PROJECT_DIR="$BASE_DIR" EXPRESSVPN_ACTIVATION_KEY="$EXPRESSVPN_KEY" INSTANCE_COUNT="$EXPRESSVPN_INSTANCES" bash "$MYSTERIUM_SCRIPT" &
   PIDS+=($!)
 }
 
