@@ -9,6 +9,7 @@ REGION_FILE="${EXPRESSVPN_REGION_FILE:-$ROOT_DIR/expressvpn_region.txt}"
 WORKDIR="${WORKDIR:-/tmp/expressvpn_multi}"
 BASE_NS="${BASE_NS:-vpnns}"
 VETH_PREFIX="${VETH_PREFIX:-vpn}"
+INSTANCE_ROOT_BASE="${INSTANCE_ROOT_BASE:-/tmp/${BASE_NS}}"
 INSTANCE_COUNT="${INSTANCE_COUNT:-1}"
 CODE="${EXPRESSVPN_CODE:-${CODE:-}}"
 APP_CMD_TEMPLATE="${APP_CMD_TEMPLATE:-}"
@@ -71,7 +72,7 @@ create_netns() {
 
 prepare_instance_files() {
   local ns="$1"
-  local inst="/opt/expressvpn/$ns"
+  local inst="${INSTANCE_ROOT_BASE}/${ns}"
   mkdir -p "$inst"
 
   if [[ ! -x "$inst/bin/expressvpnctl" ]]; then
@@ -105,7 +106,7 @@ start_instance() {
   create_netns "$idx" "$ns"
   prepare_instance_files "$ns"
 
-  local inst="/opt/expressvpn/$ns"
+  local inst="${INSTANCE_ROOT_BASE}/${ns}"
   local log_file="$WORKDIR/${ns}.log"
   local service_file="$inst/etc/init.d/expressvpn-service"
 
