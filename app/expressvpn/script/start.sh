@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
+export LD_LIBRARY_PATH="/opt/expressvpn/lib:${LD_LIBRARY_PATH:-}"
+
 log() {
     echo "[start] $*"
 }

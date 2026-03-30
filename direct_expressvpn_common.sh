@@ -117,7 +117,7 @@ start_instance() {
     mount --bind '$inst' /opt/expressvpn
     mount --bind '$EXPRESSVPN_SCRIPT_SRC' /expressvpn
     export PATH='/opt/expressvpn/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
-    export LD_LIBRARY_PATH='/opt/expressvpn/lib:${LD_LIBRARY_PATH:-}'
+    export LD_LIBRARY_PATH=\"/opt/expressvpn/lib:\${LD_LIBRARY_PATH:-}\"
     export CODE='$CODE'
     export SERVER='$region'
     export EXPRESSVPN_TMP_ROOT='/tmp/$ns'
