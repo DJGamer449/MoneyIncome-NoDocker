@@ -32,7 +32,7 @@ notify_healthcheck() {
 }
 
 main() {
-    local failure_flag="/tmp/expressvpn/reconnect-failure.flag"
+    local failure_flag="${XVPN_RUNTIME_DIR:-/tmp/expressvpn}/reconnect-failure.flag"
     if [[ -f "${failure_flag}" ]]; then
         notify_healthcheck "/fail" || true
         exit 1
