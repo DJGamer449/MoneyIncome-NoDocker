@@ -355,7 +355,7 @@ supervise_connection_loop() {
     local interval="${CONNECTION_CHECK_INTERVAL:-30}"
     local target="${SERVER:-smart}"
     local failure_threshold="${RECONNECT_FAILURE_THRESHOLD:-3}"
-    local failure_flag="/tmp/expressvpn/reconnect-failure.flag"
+    local failure_flag="${EXPRESSVPN_FAILURE_FLAG:-/tmp/expressvpn/reconnect-failure.flag}"
     local failure_count=0
     mkdir -p "$(dirname "${failure_flag}")"
 

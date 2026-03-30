@@ -292,57 +292,41 @@ clone_and_run() {
 }
 
 run_earnapp() {
-  create_netns_with_veth "earnns" "earn" "${NS_INDEX[earnns]}"
-  echo "Starting EarnApp..."
-  sudo BASE_NS=earnns VETH_PREFIX=earn WORKDIR=/tmp/earnapp_multi \
-    bash "$EARNAPP_SCRIPT" proxies.txt &
+  echo "Starting EarnApp with isolated ExpressVPN netns instances..."
+  sudo bash "$EARNAPP_SCRIPT" &
   PIDS+=($!)
 }
 
 run_traff() {
   if [[ -z "$TRAFF_TOKEN" ]]; then echo "Traff token not set."; return; fi
-  create_netns_with_veth "traffns" "traff" "${NS_INDEX[traffns]}"
-  local RUNTIME="/tmp/traff_runtime.sh"
-  cp "$TRAFF_SCRIPT" "$RUNTIME"
-  sed -i "s|--token \".*\"|--token \"$TRAFF_TOKEN\"|g" "$RUNTIME"
-  echo "Starting Traff..."
-  sudo BASE_NS=traffns VETH_PREFIX=traff WORKDIR=/tmp/traff_multi \
-    bash "$RUNTIME" proxies.txt &
+  echo "Starting Traff with isolated ExpressVPN netns instances..."
+  sudo bash "$TRAFF_SCRIPT" "$TRAFF_TOKEN" &
   PIDS+=($!)
 }
 
 run_packetstream() {
   if [[ -z "$PS_TOKEN" ]]; then echo "PacketStream token not set."; return; fi
-  create_netns_with_veth "psns" "ps" "${NS_INDEX[psns]}"
   local RUNTIME="/tmp/ps_runtime.sh"
-  cp "$TRAFF_SCRIPT" "$RUNTIME"
-  sed -i "s|APP_CMD=.*|APP_CMD=( env CID=\"$PS_TOKEN\" PS_IS_DOCKER=true ./app/psclient )|g" "$RUNTIME"
-  echo "Starting PacketStream..."
-  sudo BASE_NS=psns VETH_PREFIX=ps WORKDIR=/tmp/ps_multi \
-    bash "$RUNTIME" proxies.txt &
+  cp "$BASE_DIR/direct_traff.sh" "$RUNTIME"
+  sed -i "s|\\./app/cli start accept --token '\\$TOKEN'|env CID='\\$TOKEN' PS_IS_DOCKER=true ./app/psclient|g" "$RUNTIME"
+  echo "Starting PacketStream with isolated ExpressVPN netns instances..."
+  sudo bash "$RUNTIME" "$PS_TOKEN" &
   PIDS+=($!)
 }
 
 run_castar() {
   if [[ -z "$CASTAR_KEY" ]]; then echo "Castar key not set."; return; fi
-  create_netns_with_veth "castarns" "castar" "${NS_INDEX[castarns]}"
-  local RUNTIME="/tmp/castar_runtime.sh"
-  cp "$TRAFF_SCRIPT" "$RUNTIME"
-  sed -i "s|APP_CMD=.*|APP_CMD=( ./app/CastarSDK -key=\"$CASTAR_KEY\" )|g" "$RUNTIME"
-  echo "Starting Castar..."
-  sudo BASE_NS=castarns VETH_PREFIX=castar WORKDIR=/tmp/castar_multi \
-    bash "$RUNTIME" proxies.txt &
+  echo "Starting Castar with isolated ExpressVPN netns instances..."
+  sudo bash "$BASE_DIR/direct_castar.sh" "$CASTAR_KEY" &
   PIDS+=($!)
 }
 
 run_urnetwork() {
-  create_netns_with_veth "urns" "ur" "${NS_INDEX[urns]}"
-  echo "Starting UrNetwork..."
+  echo "Starting UrNetwork with isolated ExpressVPN netns instances..."
   if [[ ! -f "$HOME/.urnetwork/jwt" ]]; then
     ./app/provider auth
   fi
-  sudo BASE_NS=urns VETH_PREFIX=ur WORKDIR=/tmp/ur_multi \
-    bash "$UR_SCRIPT" proxies.txt &
+  sudo bash "$UR_SCRIPT" &
   PIDS+=($!)
 }
 
@@ -356,10 +340,8 @@ run_wipter() {
     echo "Wipter credentials not set. Please restart and provide them, or set WIPTER_EMAIL/WIPTER_PASSWORD in environment."
     return
   fi
-  create_netns_with_veth "wipterns" "wipter" "${NS_INDEX[wipterns]}"
-  echo "Starting Wipter..."
-  sudo BASE_NS=wipterns VETH_PREFIX=wipter WORKDIR=/tmp/wipter_multi WIPTER_EMAIL="$WIPTER_EMAIL" WIPTER_PASSWORD="$WIPTER_PASSWORD" \
-    bash "$WIPTER_SCRIPT" proxies.txt &
+  echo "Starting Wipter with isolated ExpressVPN netns instances..."
+  sudo bash "$WIPTER_SCRIPT" "$WIPTER_EMAIL" "$WIPTER_PASSWORD" &
   PIDS+=($!)
 }
 
@@ -379,11 +361,12 @@ run_honeygain() {
     return
   fi
 
-  local account_blob
-  account_blob=$(printf '%s\n' "${HONEYGAIN_ACCOUNTS[@]}")
-  echo "Starting Honeygain with ${#HONEYGAIN_ACCOUNTS[@]} account(s)..."
-  sudo BASE_NS=honeyns VETH_PREFIX=honey WORKDIR=/tmp/honeygain_multi HONEYGAIN_ACCOUNTS="$account_blob" \
-    bash "$HONEYGAIN_SCRIPT" proxies.txt &
+  local first_account email password
+  first_account="${HONEYGAIN_ACCOUNTS[0]}"
+  email="${first_account%%|*}"
+  password="${first_account#*|}"
+  echo "Starting Honeygain with isolated ExpressVPN netns instances..."
+  sudo bash "$HONEYGAIN_SCRIPT" "$email" "$password" &
   PIDS+=($!)
 }
 
@@ -392,10 +375,8 @@ run_mysterium() {
     echo "direct_mysterium.sh not found or not executable at $MYSTERIUM_SCRIPT"
     return
   fi
-  echo "Starting Mysterium node instances..."
-  sudo BASE_NS=mysterns VETH_PREFIX=myster WORKDIR=/tmp/mysterium_multi \
-    MYST_BASE_DIR="$BASE_DIR/myst" \
-    bash "$MYSTERIUM_SCRIPT" proxies.txt &
+  echo "Starting Mysterium node instances with isolated ExpressVPN netns..."
+  sudo bash "$MYSTERIUM_SCRIPT" &
   PIDS+=($!)
 }
 
@@ -406,7 +387,7 @@ menu() {
   echo "3) Run PacketStream"
   echo "4) Run UrNetwork"
   echo "5) Run Castar"
-  echo "6) Install hev-socks5-tunnel"
+  echo "6) Install/validate ExpressVPN runtime dependencies"
   echo "7) Install EarnApp Binary"
   echo "8) Install Dependencies"
   echo "9) Run ALL (Safe Mode)"
