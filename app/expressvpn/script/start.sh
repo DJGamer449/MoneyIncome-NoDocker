@@ -41,10 +41,17 @@ restart_service() {
         log "Service ${service_script} start failed!"
         exit 1
     fi
+
+    if ! wait_for_condition 30 1 check_daemon; then
+        log "Daemon did not respond after init start; attempting direct daemon bootstrap."
+        if [[ -x /opt/expressvpn/bin/expressvpn-daemon ]]; then
+            /opt/expressvpn/bin/expressvpn-daemon --quiet --pidfile /var/run/expressvpn-service.pid >/dev/null 2>&1 &
+        fi
+    fi
 }
 
 wait_for_daemon() {
-    wait_for_condition 10 2 check_daemon
+    wait_for_condition 45 2 check_daemon
 }
 
 activate_account() {
