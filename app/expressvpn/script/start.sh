@@ -9,6 +9,14 @@ has_ctl() {
     command -v expressvpnctl >/dev/null 2>&1
 }
 
+check_daemon_process() {
+    pgrep -f '/opt/expressvpn/bin/expressvpn-daemon' >/dev/null 2>&1
+}
+
+check_daemon_or_process() {
+    check_daemon || check_daemon_process
+}
+
 restore_resolver() {
     local resolv="/etc/resolv.conf"
 
@@ -42,16 +50,19 @@ restart_service() {
         exit 1
     fi
 
-    if ! wait_for_condition 30 1 check_daemon; then
+    if ! wait_for_condition 30 1 check_daemon_or_process; then
         log "Daemon did not respond after init start; attempting direct daemon bootstrap."
-        if [[ -x /opt/expressvpn/bin/expressvpn-daemon ]]; then
+        if check_daemon_process; then
+            log "Daemon process already running; skipping duplicate bootstrap."
+        elif [[ -x /opt/expressvpn/bin/expressvpn-daemon ]]; then
             /opt/expressvpn/bin/expressvpn-daemon --quiet --pidfile /var/run/expressvpn-service.pid >/dev/null 2>&1 &
         fi
+        wait_for_condition 20 1 check_daemon_or_process || true
     fi
 }
 
 wait_for_daemon() {
-    wait_for_condition 45 2 check_daemon
+    wait_for_condition 45 2 check_daemon_or_process
 }
 
 activate_account() {
