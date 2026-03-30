@@ -21,24 +21,24 @@ restore_resolver() {
 }
 
 restart_service() {
-    local service_name=""
-    if [[ -f /etc/init.d/expressvpn-service ]]; then
-        service_name="expressvpn-service"
-    elif [[ -f /etc/init.d/expressvpn ]]; then
-        service_name="expressvpn"
+    local service_script=""
+    if [[ -x /etc/init.d/expressvpn-service ]]; then
+        service_script="/etc/init.d/expressvpn-service"
+    elif [[ -x /etc/init.d/expressvpn ]]; then
+        service_script="/etc/init.d/expressvpn"
     fi
 
-    if [[ -z "$service_name" ]]; then
+    if [[ -z "$service_script" ]]; then
         log "Unable to locate expressvpn init script"
         exit 1
     fi
 
-    service "$service_name" stop >/dev/null 2>&1 || true
-    if service_output=$(service "$service_name" start 2>&1); then
+    "$service_script" stop >/dev/null 2>&1 || true
+    if service_output=$("$service_script" start 2>&1); then
         log "$service_output"
     else
         log "$service_output"
-        log "Service ${service_name} start failed!"
+        log "Service ${service_script} start failed!"
         exit 1
     fi
 }
@@ -246,11 +246,13 @@ start_metrics_fallback() {
     local exec_cmd
     printf -v exec_cmd 'env METRICS_EXPECTED_PATH=%q /expressvpn/metrics-server.sh' "$path"
     log "Starting metrics fallback server on port ${port} via socat"
-    socat -T30 "${listen_addr}" EXEC:"${exec_cmd}",pipes >>/tmp/metrics-socat.log 2>&1 &
+    local tmp_root="${EXPRESSVPN_TMP_ROOT:-/tmp}"
+    mkdir -p "${tmp_root}"
+    socat -T30 "${listen_addr}" EXEC:"${exec_cmd}",pipes >>"${tmp_root}/metrics-socat.log" 2>&1 &
     local socat_pid=$!
     sleep 1
     if ! kill -0 "${socat_pid}" 2>/dev/null; then
-        log "Unable to launch metrics fallback server, see /tmp/metrics-socat.log for details"
+        log "Unable to launch metrics fallback server, see ${tmp_root}/metrics-socat.log for details"
     fi
 }
 
@@ -285,7 +287,9 @@ start_metrics_exporter() {
 EOF
 
     log "Starting metrics exporter on port ${port} path ${path}"
-    local err_log="/tmp/metrics-httpd.log"
+    local tmp_root="${EXPRESSVPN_TMP_ROOT:-/tmp}"
+    mkdir -p "${tmp_root}"
+    local err_log="${tmp_root}/metrics-httpd.log"
     rm -f "${err_log}"
     busybox httpd -f -p "0.0.0.0:${port}" -h /expressvpn/www -c /expressvpn/www/httpd.conf >"${err_log}" 2>&1 &
     local httpd_pid=$!
@@ -355,7 +359,8 @@ supervise_connection_loop() {
     local interval="${CONNECTION_CHECK_INTERVAL:-30}"
     local target="${SERVER:-smart}"
     local failure_threshold="${RECONNECT_FAILURE_THRESHOLD:-3}"
-    local failure_flag="/tmp/expressvpn/reconnect-failure.flag"
+    local tmp_root="${EXPRESSVPN_TMP_ROOT:-/tmp}"
+    local failure_flag="${tmp_root}/expressvpn/reconnect-failure.flag"
     local failure_count=0
     mkdir -p "$(dirname "${failure_flag}")"
 
