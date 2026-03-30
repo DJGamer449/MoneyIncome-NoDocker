@@ -107,13 +107,14 @@ start_instance() {
 
   local inst="/opt/expressvpn/$ns"
   local log_file="$WORKDIR/${ns}.log"
+  local service_file="$inst/etc/init.d/expressvpn-service"
 
   ip netns exec "$ns" unshare -m bash -lc "
     set -euo pipefail
     mkdir -p /opt/expressvpn /etc/init.d /expressvpn /tmp
+    mount --bind '$service_file' /etc/init.d/expressvpn-service
     mount --bind '$inst' /opt/expressvpn
     mount --bind '$EXPRESSVPN_SCRIPT_SRC' /expressvpn
-    mount --bind '$inst/etc/init.d/expressvpn-service' /etc/init.d/expressvpn-service
     export PATH='/opt/expressvpn/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
     export LD_LIBRARY_PATH='/opt/expressvpn/lib:${LD_LIBRARY_PATH:-}'
     export CODE='$CODE'
