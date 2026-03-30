@@ -78,9 +78,9 @@ start_expressvpn_in_namespace() {
     mkdir -p /opt/expressvpn /expressvpn /etc/init.d /var/lib/expressvpn /var/run/expressvpn /tmp/expressvpn
     mount --bind '$instance_dir' /opt/expressvpn
     mount --bind '$EXPRESSVPN_SCRIPT_SRC' /expressvpn
-    mount --bind '$instance_dir/etc/init.d' /etc/init.d
-    mount --bind '$instance_dir/var' /var/lib/expressvpn
-    mount --bind '$instance_dir/run' /var/run/expressvpn
+    mount --bind /opt/expressvpn/etc/init.d /etc/init.d
+    mount --bind /opt/expressvpn/var /var/lib/expressvpn
+    mount --bind /opt/expressvpn/run /var/run/expressvpn
     export PATH=/opt/expressvpn/bin:\$PATH
     /opt/expressvpn/bin/expressvpn-daemon >/tmp/expressvpn/daemon.log 2>&1 &
     sleep 3
