@@ -73,7 +73,13 @@ prepare_instance_files() {
   local ns="$1" idx="$2"
   local inst_root="$WORKDIR/$ns"
   local inst_opt="/opt/expressvpn/$ns"
-  mkdir -p "$inst_root/etc/init.d" "$inst_root/tmp" "$inst_opt"
+  mkdir -p \
+    "$inst_root/etc/init.d" \
+    "$inst_root/etc/expressvpn" \
+    "$inst_root/var/run" \
+    "$inst_root/var/lib/expressvpn" \
+    "$inst_root/tmp/expressvpn" \
+    "$inst_opt"
 
   rsync -a --delete "$EXPRESSVPN_SRC/" "$inst_opt/"
   cp "$SERVICE_TEMPLATE" "$inst_root/etc/init.d/expressvpn-service"
@@ -104,6 +110,10 @@ start_instance() {
     mount --bind "$INSTANCE_OPT" /opt/expressvpn
     mount --bind "$SCRIPT_DIR" /expressvpn
     mount --bind "$INSTANCE_ROOT/etc/init.d/expressvpn-service" /etc/init.d/expressvpn-service
+    mount --bind "$INSTANCE_ROOT/etc/expressvpn" /etc/expressvpn
+    mount --bind "$INSTANCE_ROOT/var/run" /var/run
+    mount --bind "$INSTANCE_ROOT/var/lib/expressvpn" /var/lib/expressvpn
+    mount --bind "$INSTANCE_ROOT/tmp" /tmp
 
     export PATH="/opt/expressvpn/bin:$PATH"
     export LD_LIBRARY_PATH="/opt/expressvpn/lib:${LD_LIBRARY_PATH:-}"
@@ -114,10 +124,11 @@ start_instance() {
     service expressvpn-service start >/dev/null
 
     code_file="$(mktemp)"
+    login_log="$EXPRESSVPN_RUNTIME_BASE/login.log"
     printf "%s" "$INSTANCE_KEY" > "$code_file"
-    if ! expressvpnctl --timeout 60 login "$code_file" >/tmp/evpn-login.log 2>&1; then
-      if ! grep -qi "Already logged into account" /tmp/evpn-login.log; then
-        cat /tmp/evpn-login.log
+    if ! expressvpnctl --timeout 60 login "$code_file" >"$login_log" 2>&1; then
+      if ! grep -qi "Already logged into account" "$login_log"; then
+        cat "$login_log"
         rm -f "$code_file"
         exit 1
       fi

@@ -343,7 +343,6 @@ run_wipter() {
     echo "Wipter credentials not set. Please restart and provide them, or set WIPTER_EMAIL/WIPTER_PASSWORD in environment."
     return
   fi
-  create_netns_with_veth "wipterns" "wipter" "${NS_INDEX[wipterns]}"
   echo "Starting Wipter..."
   sudo BASE_NS=wipterns VETH_PREFIX=wipter WORKDIR=/tmp/wipter_multi WIPTER_EMAIL="$WIPTER_EMAIL" WIPTER_PASSWORD="$WIPTER_PASSWORD" \
     bash "$WIPTER_SCRIPT" &
