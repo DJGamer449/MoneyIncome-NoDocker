@@ -32,7 +32,8 @@ notify_healthcheck() {
 }
 
 main() {
-    local failure_flag="/tmp/expressvpn/reconnect-failure.flag"
+    local failure_flag="${EXPRESSVPN_RUNTIME_BASE:-/tmp/expressvpn}/reconnect-failure.flag"
+    mkdir -p "$(dirname "$failure_flag")"
     if [[ -f "${failure_flag}" ]]; then
         notify_healthcheck "/fail" || true
         exit 1

@@ -9,8 +9,10 @@ echo
 trim() { sed 's/^[[:space:]]*//;s/[[:space:]]*$//'; }
 
 # Simple state tracking to support counters across scrapes.
-state_file="/tmp/expressvpn-metrics.state"
-state_lock="/tmp/expressvpn-metrics.lock"
+runtime_base="${EXPRESSVPN_RUNTIME_BASE:-/tmp/expressvpn}"
+mkdir -p "$runtime_base"
+state_file="$runtime_base/expressvpn-metrics.state"
+state_lock="$runtime_base/expressvpn-metrics.lock"
 
 last_state=""
 last_state_ts=0
