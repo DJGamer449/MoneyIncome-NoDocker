@@ -17,7 +17,7 @@ WORKDIR="${WORKDIR:-/tmp/honeygain_multi}"
 FWMARK="${FWMARK:-0x22b}"
 TUN_TABLE="${TUN_TABLE:-100}"
 BYPASS_UDP53="${BYPASS_UDP53:-1}"
-BYPASS_ALL_UDP="${BYPASS_ALL_UDP:-0}"
+BYPASS_ALL_UDP="${BYPASS_ALL_UDP:-1}"
 DEVICES_PER_ACCOUNT=10
 mkdir -p "$WORKDIR"
 
@@ -70,23 +70,6 @@ parse_proxy() {
   esac
 
   echo "$proto" "$user" "$pass" "$host" "$port"
-}
-
-
-proxy_supports_udp() {
-  local proxy="$1"
-  case "$proxy" in
-    socks5://*|socks5h://*) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
-normalize_tun2socks_proxy() {
-  local proxy="$1"
-  case "$proxy" in
-    socks5h://*) printf '%s\n' "socks5://${proxy#socks5h://}" ;;
-    *) printf '%s\n' "$proxy" ;;
-  esac
 }
 
 check_proxy() {
@@ -247,14 +230,8 @@ start_tun2socks_and_honeygain() {
   local password="$4"
   local device_num="$5"
 
-  local parsed proto user pass host port tun2socks_proxy
+  local parsed proto user pass host port
   parsed="$(parse_proxy "$proxy")" || { echo "[$idx] Bad proxy: $proxy"; return 1; }
-  tun2socks_proxy="$(normalize_tun2socks_proxy "$proxy")"
-
-  if [[ "$BYPASS_ALL_UDP" != "1" ]] && ! proxy_supports_udp "$tun2socks_proxy"; then
-    echo "[$idx] Skipping proxy without UDP-capable tun2socks support: $proxy"
-    return 1
-  fi
   read -r proto user pass host port <<<"$parsed"
 
   local ns
@@ -272,7 +249,7 @@ start_tun2socks_and_honeygain() {
   local t_pidfile="$WORKDIR/tun2socks_${idx}.pid"
   local t_logfile="$WORKDIR/tun2socks_${idx}.log"
   ip netns exec "$ns" bash -c "
-    tun2socks -device tun0 -proxy '$tun2socks_proxy' -fwmark '$FWMARK' >'$t_logfile' 2>&1 &
+    tun2socks -device tun0 -proxy '$proxy' -fwmark '$FWMARK' >'$t_logfile' 2>&1 &
     echo \$! > '$t_pidfile'
   "
 
@@ -345,16 +322,14 @@ main() {
       echo "[src#$i] ok ($res): $proxy"
     fi
 
-    local next_used=$((used+1))
-    account_idx=$(( (next_used - 1) / DEVICES_PER_ACCOUNT ))
-    device_num=$(( (next_used - 1) % DEVICES_PER_ACCOUNT + 1 ))
+    used=$((used+1))
+    account_idx=$(( (used - 1) / DEVICES_PER_ACCOUNT ))
+    device_num=$(( (used - 1) % DEVICES_PER_ACCOUNT + 1 ))
     account_entry="${HONEYGAIN_ACCOUNTS[$account_idx]}"
     email="${account_entry%%|*}"
     password="${account_entry#*|}"
 
-    if start_tun2socks_and_honeygain "$next_used" "$proxy" "$email" "$password" "$device_num"; then
-      used=$next_used
-    fi
+    start_tun2socks_and_honeygain "$used" "$proxy" "$email" "$password" "$device_num"
   done
 
   (( used > 0 )) || { echo "No usable proxies after filtering."; exit 1; }
