@@ -80,6 +80,8 @@ prepare_instance_files() {
   fi
 
   mkdir -p "$inst/etc/init.d" "$inst/bin" "$inst/tmp"
+  chmod +x "$inst/bin/expressvpn-daemon" "$inst/bin/expressvpnctl" 2>/dev/null || true
+  chmod +x "$inst/bin/"* 2>/dev/null || true
   cp "$EXPRESSVPN_SERVICE_SRC" "$inst/etc/init.d/expressvpn-service"
   chmod +x "$inst/etc/init.d/expressvpn-service"
 

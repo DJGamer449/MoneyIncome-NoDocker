@@ -36,10 +36,11 @@ restore_resolver() {
 }
 
 restart_service() {
-    if [[ ! -x /opt/expressvpn/bin/expressvpn-daemon ]]; then
+    if [[ ! -f /opt/expressvpn/bin/expressvpn-daemon ]]; then
         log "Missing /opt/expressvpn/bin/expressvpn-daemon"
         exit 1
     fi
+    chmod +x /opt/expressvpn/bin/expressvpn-daemon /opt/expressvpn/bin/expressvpnctl 2>/dev/null || true
     pkill -f '/opt/expressvpn/bin/expressvpn-daemon' >/dev/null 2>&1 || true
     /opt/expressvpn/bin/expressvpn-daemon --quiet --pidfile /var/run/expressvpn-service.pid >/dev/null 2>&1 &
     if ! wait_for_condition 30 1 check_daemon_or_process; then
