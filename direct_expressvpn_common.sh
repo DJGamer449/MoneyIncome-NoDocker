@@ -75,7 +75,9 @@ prepare_instance_files() {
   local inst="${INSTANCE_ROOT_BASE}/${ns}"
   mkdir -p "$inst"
 
-  if [[ ! -x "$inst/bin/expressvpnctl" ]]; then
+  if [[ ! -f "$inst/bin/expressvpnctl" || ! -f "$inst/bin/expressvpn-daemon" ]]; then
+    rm -rf "$inst"
+    mkdir -p "$inst"
     cp -a "$EXPRESSVPN_SRC"/* "$inst"/
   fi
 
