@@ -3,6 +3,11 @@ set -euo pipefail
 
 export LD_LIBRARY_PATH="/opt/expressvpn/lib:${LD_LIBRARY_PATH:-}"
 
+expressvpnctl() {
+    LD_LIBRARY_PATH="/opt/expressvpn/lib:${LD_LIBRARY_PATH:-}" \
+        /opt/expressvpn/bin/expressvpnctl "$@"
+}
+
 log() {
     echo "[start] $*"
 }
@@ -31,35 +36,15 @@ restore_resolver() {
 }
 
 restart_service() {
-    local service_script=""
-    if [[ -x /etc/init.d/expressvpn-service ]]; then
-        service_script="/etc/init.d/expressvpn-service"
-    elif [[ -x /etc/init.d/expressvpn ]]; then
-        service_script="/etc/init.d/expressvpn"
-    fi
-
-    if [[ -z "$service_script" ]]; then
-        log "Unable to locate expressvpn init script"
+    if [[ ! -x /opt/expressvpn/bin/expressvpn-daemon ]]; then
+        log "Missing /opt/expressvpn/bin/expressvpn-daemon"
         exit 1
     fi
-
-    "$service_script" stop >/dev/null 2>&1 || true
-    if service_output=$("$service_script" start 2>&1); then
-        log "$service_output"
-    else
-        log "$service_output"
-        log "Service ${service_script} start failed!"
-        exit 1
-    fi
-
+    pkill -f '/opt/expressvpn/bin/expressvpn-daemon' >/dev/null 2>&1 || true
+    /opt/expressvpn/bin/expressvpn-daemon --quiet --pidfile /var/run/expressvpn-service.pid >/dev/null 2>&1 &
     if ! wait_for_condition 30 1 check_daemon_or_process; then
-        log "Daemon did not respond after init start; attempting direct daemon bootstrap."
-        if check_daemon_process; then
-            log "Daemon process already running; skipping duplicate bootstrap."
-        elif [[ -x /opt/expressvpn/bin/expressvpn-daemon ]]; then
-            /opt/expressvpn/bin/expressvpn-daemon --quiet --pidfile /var/run/expressvpn-service.pid >/dev/null 2>&1 &
-        fi
-        wait_for_condition 20 1 check_daemon_or_process || true
+        log "ExpressVPN daemon failed to start."
+        exit 1
     fi
 }
 
