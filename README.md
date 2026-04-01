@@ -142,25 +142,6 @@ The script will:
 
 ------------------------------------------------------------------------
 
-
-## 🐳 ExpressVPN High-Scale Container Profile
-
-For large deployments (for example, targeting up to **1000 containers**), use the new optimized files:
-
-- `Dockerfile.expressvpn`
-- `docker-compose.expressvpn-scale.yml`
-- `docs/EXPRESSVPN_SCALE.md`
-
-These include a lightweight glibc-slim runtime, low-memory allocator defaults, tmpfs mounts, and resource limits to reduce CPU/RAM usage per container.
-
-Build and run quickly:
-
-```bash
-docker build -f Dockerfile.expressvpn -t local/expressvpn-scale:latest .
-docker compose -f docker-compose.expressvpn-scale.yml up -d --scale expressvpn=1000
-```
-
-------------------------------------------------------------------------
 ## ⚠ Disclaimer
 
 This project is for educational and experimental purposes only.
