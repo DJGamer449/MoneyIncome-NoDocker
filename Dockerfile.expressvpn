@@ -1,0 +1,58 @@
+# syntax=docker/dockerfile:1.7
+# High-density ExpressVPN runtime image for large container fleets.
+#
+# Why Debian slim instead of Alpine:
+# - ExpressVPN Linux binaries are linked against glibc.
+# - Alpine uses musl libc; shims can reduce stability and increase runtime overhead.
+#
+# This image uses a compact glibc base and strips optional tooling to minimize
+# memory footprint while keeping binary compatibility.
+
+FROM debian:bookworm-slim
+
+LABEL org.opencontainers.image.title="expressvpn-scale-runtime" \
+      org.opencontainers.image.description="Optimized ExpressVPN container for dense deployments" \
+      org.opencontainers.image.licenses="MIT"
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    TZ=UTC
+
+# Install only strict runtime dependencies (no recommends) and clean apt cache.
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update \
+    && apt-get install -y --no-install-recommends \
+       ca-certificates \
+       iproute2 \
+       iptables \
+       libnss3 \
+       libstdc++6 \
+       libgcc-s1 \
+       procps \
+       tini \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy preinstalled ExpressVPN bundle from this repository.
+# If you replace binaries, keep this path structure unchanged.
+COPY app/expressvpn/vpnns1/ /opt/expressvpn/
+
+# Runtime scripts for low-overhead startup and safer defaults.
+COPY docker/entrypoint-expressvpn.sh /usr/local/bin/entrypoint-expressvpn.sh
+COPY docker/expressvpn-healthcheck.sh /usr/local/bin/expressvpn-healthcheck.sh
+
+RUN chmod 0755 /usr/local/bin/entrypoint-expressvpn.sh /usr/local/bin/expressvpn-healthcheck.sh \
+    && find /opt/expressvpn -type f -name '*.dmp' -delete \
+    && find /opt/expressvpn -type d -name crashes -prune -exec rm -rf {} + \
+    && rm -rf /opt/expressvpn/var/log/* 2>/dev/null || true
+
+# Isolate write-heavy paths on tmpfs at runtime for lower disk IO overhead.
+VOLUME ["/opt/expressvpn/var", "/tmp"]
+
+# Healthcheck is intentionally lightweight to avoid CPU spikes at scale.
+HEALTHCHECK --interval=60s --timeout=4s --start-period=20s --retries=3 \
+  CMD ["/usr/local/bin/expressvpn-healthcheck.sh"]
+
+# tini helps avoid zombie process buildup in large container fleets.
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint-expressvpn.sh"]
