@@ -165,6 +165,31 @@ install_dependencies() {
   sudo apt update && sudo apt install -y curl wget unzip iproute2 iptables uuid-runtime jq net-tools git socat
 }
 
+install_wipter() {
+  sudo apt-get update
+  sudo apt-get install -y \
+    xvfb \
+    dbus \
+    dbus-x11 \
+    dbus-user-session \
+    gnome-keyring \
+    libsecret-tools \
+    libsecret-1-0 \
+    libgtk-3-0 \
+    libnss3 \
+    libxss1 \
+    libatk-bridge2.0-0 \
+    libdrm2 \
+    libgbm1 \
+    libxkbcommon0 \
+    xdg-utils \
+    fonts-liberation
+
+  sudo apt-get install -y libasound2 || sudo apt-get install -y libasound2t64
+  wget -O /tmp/wipter-app-amd64.deb https://provider-assets.wipter.com/latest/linux/x64/wipter-app-amd64.deb
+  sudo apt install -y /tmp/wipter-app-amd64.deb
+}
+
 install_earnapp() {
   install_dependencies
   wget -qO- https://brightdata.com/static/earnapp/install.sh > /tmp/earnapp.sh && sudo bash /tmp/earnapp.sh
@@ -434,6 +459,7 @@ menu() {
   echo "W) Run Wipter"
   echo "M) Run Mysterium Node"
   echo "I) Install Mysterium Node"
+  echo "J) Install Wipter"
   echo "0) Exit"
   echo "==============================================="
 }
@@ -475,6 +501,7 @@ while true; do
     W|w) run_wipter ; wait ;;
     M|m) run_mysterium ; wait ;;
     I|i) sudo bash "$MYST_INSTALL_SCRIPT" ; wait ;;
+    J|j) install_wipter ; wait ;;
     0) cleanup ;;
     *) echo "Invalid option." ;;
   esac
