@@ -9,9 +9,8 @@ A unified multi-service Linux network namespace manager for:
 -   PacketStream
 -   UrNetwork
 -   CastarSDK
--   hev-socks5-tunnel (heiher native binary)
 -   Honeygain
--   Mysterium Node
+-   tun2socks (xjasonlyu native binary)
 
 Run multiple services simultaneously using isolated Linux network
 namespaces with proxy routing.
@@ -21,7 +20,6 @@ namespaces with proxy routing.
 ## ✨ Features
 
 -   Run **EarnApp, TraffMonetizer, PacketStream, UrNetwork, CastarSDK, Honeygain** at the same time
--   Run **Mysterium Node** instances with isolated per-proxy namespaces
 -   Each service runs in its own isolated netns
 -   Automatic proxy routing via hev-socks5-tunnel
 -   Mysterium node connect UI is auto-forwarded from namespace-local `127.0.0.1:4449` to host `127.0.0.1:4450`, `4451`, `4452`, ...
@@ -48,7 +46,7 @@ namespaces with proxy routing.
 -   earnapp installed in /usr/bin/earnapp
 -   cli binary for Traff
 -   psclient binary for PacketStream
--   Honeygain binary + libs in `app/honeygain_file`
+-   Honeygain binary at `app/honeygain_file/honeygain`
 
 ------------------------------------------------------------------------
 
@@ -92,6 +90,16 @@ Select option:
 - `6` to install hev-socks5-tunnel
 - `I` to install Mysterium Node
 - `M` to run Mysterium Node instances through the proxies in `proxies.txt`
+
+------------------------------------------------------------------------
+
+## Honeygain Setup
+
+- Place the Honeygain binary in `app/honeygain_file/honeygain` and make sure it is executable.
+- Start Honeygain from the main menu with `H) Run Honeygain`.
+- The first run asks whether you want a single account or multiple accounts.
+- Credentials are stored in `honeygain_password.txt` after setup and you can optionally add more saved accounts before each start.
+- Each saved account is used for up to 10 devices named `<mailname>-1` through `<mailname>-10`, then the script continues with the next account.
 
 ------------------------------------------------------------------------
 

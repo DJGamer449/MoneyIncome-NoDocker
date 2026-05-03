@@ -2,60 +2,59 @@
 set -euo pipefail
 
 PROXY_FILE="${1:-proxies.txt}"
+HONEYGAIN_BIN="${HONEYGAIN_BIN:-./app/honeygain_file/honeygain}"
+HONEYGAIN_ACCOUNTS_FILE="${HONEYGAIN_ACCOUNTS_FILE:-./honeygain_password.txt}"
 CHECK_WORKING="${CHECK_WORKING:-1}"
+CHECK_SPEED="${CHECK_SPEED:-0}"
+MAX_LAT_MS="${MAX_LAT_MS:-1500}"
 CONNECT_TIMEOUT="${CONNECT_TIMEOUT:-5}"
 TOTAL_TIMEOUT="${TOTAL_TIMEOUT:-12}"
 FORCE_NS_DNS="${FORCE_NS_DNS:-1}"
 NS_DNS_LIST="${NS_DNS_LIST:-1.1.1.1 8.8.8.8}"
-BASE_NS="${BASE_NS:-hgne}"
-VETH_PREFIX="${VETH_PREFIX:-hgv}"
+BASE_NS="${BASE_NS:-honeyns}"
+VETH_PREFIX="${VETH_PREFIX:-honey}"
 WORKDIR="${WORKDIR:-/tmp/honeygain_multi}"
 FWMARK="${FWMARK:-0x22b}"
 TUN_TABLE="${TUN_TABLE:-100}"
 BYPASS_UDP53="${BYPASS_UDP53:-1}"
-BYPASS_ALL_UDP="${BYPASS_ALL_UDP:-0}"
-# Honeygain must not bypass UDP directly via the host, otherwise the app can expose the
-# host IP instead of the proxy IP. Keep both disabled by default so all app traffic
-# stays on tun0, while hev's own marked sockets still use the direct route.
-HONEYGAIN_DIR="${HONEYGAIN_DIR:-./app/honeygain_file}"
-HONEYGAIN_BIN="${HONEYGAIN_BIN:-$HONEYGAIN_DIR/honeygain}"
-HONEYGAIN_LIB_DIR="${HONEYGAIN_LIB_DIR:-$HONEYGAIN_DIR}"
-HONEYGAIN_ACCOUNTS_RAW="${HONEYGAIN_ACCOUNTS:-}"
+BYPASS_ALL_UDP="${BYPASS_ALL_UDP:-1}"
 DEVICES_PER_ACCOUNT=10
-
 mkdir -p "$WORKDIR"
+
+declare -a HONEYGAIN_ACCOUNTS=()
 
 require_root() {
   if [[ $EUID -ne 0 ]]; then
     echo "Run as root. Example: sudo $0 $PROXY_FILE"
     exit 1
   fi
+  command -v tun2socks >/dev/null 2>&1 || { echo "tun2socks not found in PATH"; exit 1; }
+  [[ -x "$HONEYGAIN_BIN" ]] || { echo "Honeygain binary not executable: $HONEYGAIN_BIN"; exit 1; }
+  [[ -f "$HONEYGAIN_ACCOUNTS_FILE" ]] || { echo "Honeygain account file not found: $HONEYGAIN_ACCOUNTS_FILE"; exit 1; }
+}
 
-  command -v hev-socks5-tunnel >/dev/null 2>&1 || {
-    echo "hev-socks5-tunnel not found in PATH"
-    exit 1
-  }
-  [[ -x "$HONEYGAIN_BIN" ]] || {
-    echo "Honeygain binary not executable: $HONEYGAIN_BIN"
-    exit 1
-  }
-  [[ -n "$HONEYGAIN_ACCOUNTS_RAW" ]] || {
-    echo "HONEYGAIN_ACCOUNTS is empty. Configure accounts in main.sh first."
+load_honeygain_accounts() {
+  while IFS='|' read -r email password; do
+    [[ -n "${email:-}" && -n "${password:-}" ]] || continue
+    HONEYGAIN_ACCOUNTS+=("$email|$password")
+  done < "$HONEYGAIN_ACCOUNTS_FILE"
+
+  (( ${#HONEYGAIN_ACCOUNTS[@]} > 0 )) || {
+    echo "No Honeygain accounts configured in $HONEYGAIN_ACCOUNTS_FILE"
     exit 1
   }
 }
 
 calc_octets() {
   local idx="$1"
-  local b=$(( (idx - 1) / 254 + 1 ))
-  local c=$(( (idx - 1) % 254 + 1 ))
-  echo "$b" "$c"
+  local B=$(( (idx-1) / 254 + 1 ))
+  local C=$(( (idx-1) % 254 + 1 ))
+  echo "$B" "$C"
 }
 
 parse_proxy() {
   local line="$1"
   local proto rest creds hostport user pass host port
-
   proto="${line%%://*}"
   rest="${line#*://}"
   creds="${rest%@*}"
@@ -67,10 +66,7 @@ parse_proxy() {
 
   case "$proto" in
     socks5|socks5h|http|https) ;;
-    *)
-      echo "UNSUPPORTED_PROTO"
-      return 1
-      ;;
+    *) echo "UNSUPPORTED_PROTO"; return 1 ;;
   esac
 
   echo "$proto" "$user" "$pass" "$host" "$port"
@@ -78,22 +74,30 @@ parse_proxy() {
 
 check_proxy() {
   local proxy="$1"
-  local curl_proxy="$proxy"
-
-  if [[ "$curl_proxy" == socks5://* ]]; then
-    curl_proxy="socks5h://${curl_proxy#socks5://}"
+  local start end ms
+  local p="$proxy"
+  if [[ "$p" == socks5://* ]]; then
+    p="socks5h://${p#socks5://}"
   fi
 
-  curl -fsS \
-    --proxy "$curl_proxy" \
-    --connect-timeout "$CONNECT_TIMEOUT" \
-    --max-time "$TOTAL_TIMEOUT" \
-    "http://1.1.1.1" >/dev/null
+  start="$(date +%s%3N)"
+  if ! curl -fsS --proxy "$p" --connect-timeout "$CONNECT_TIMEOUT" --max-time "$TOTAL_TIMEOUT" "http://1.1.1.1" >/dev/null; then
+    echo "FAIL"
+    return 1
+  fi
+
+  end="$(date +%s%3N)"
+  ms=$(( end - start ))
+  if [[ "$CHECK_SPEED" == "1" ]] && (( ms > MAX_LAT_MS )); then
+    echo "SLOW ${ms}ms"
+    return 2
+  fi
+
+  echo "OK ${ms}ms"
 }
 
 setup_nat_once() {
   sysctl -w net.ipv4.ip_forward=1 >/dev/null
-
   if ! iptables -t nat -C POSTROUTING -s 10.0.0.0/8 -j MASQUERADE 2>/dev/null; then
     iptables -t nat -A POSTROUTING -s 10.0.0.0/8 -j MASQUERADE
   fi
@@ -110,70 +114,59 @@ create_ns_with_veth() {
   local ns="${BASE_NS}${idx}"
   local veth_host="${VETH_PREFIX}${idx}h"
   local veth_ns="${VETH_PREFIX}${idx}n"
-  local b c
-
-  read -r b c <<<"$(calc_octets "$idx")"
+  local B C
+  read -r B C <<<"$(calc_octets "$idx")"
 
   ip netns add "$ns" 2>/dev/null || true
   if ! ip link show "$veth_host" >/dev/null 2>&1; then
     ip link add "$veth_host" type veth peer name "$veth_ns"
   fi
   ip link set "$veth_ns" netns "$ns"
-
-  ip addr add "10.${b}.${c}.1/24" dev "$veth_host" 2>/dev/null || true
+  ip addr add "10.${B}.${C}.1/24" dev "$veth_host" 2>/dev/null || true
   ip link set "$veth_host" up
-
-  ip netns exec "$ns" ip addr add "10.${b}.${c}.2/24" dev "$veth_ns" 2>/dev/null || true
+  ip netns exec "$ns" ip addr add "10.${B}.${C}.2/24" dev "$veth_ns" 2>/dev/null || true
   ip netns exec "$ns" ip link set lo up
   ip netns exec "$ns" ip link set "$veth_ns" up
-  ip netns exec "$ns" ip route replace default via "10.${b}.${c}.1" dev "$veth_ns"
+  ip netns exec "$ns" ip route replace default via "10.${B}.${C}.1" dev "$veth_ns"
 
   if [[ "$FORCE_NS_DNS" == "1" ]]; then
     mkdir -p "/etc/netns/$ns"
     : > "/etc/netns/$ns/resolv.conf"
-    for dns_ip in $NS_DNS_LIST; do
-      echo "nameserver $dns_ip" >> "/etc/netns/$ns/resolv.conf"
+    for d in $NS_DNS_LIST; do
+      echo "nameserver $d" >> "/etc/netns/$ns/resolv.conf"
     done
   fi
 
   echo "$ns"
 }
 
-resolve_ipv4_targets() {
-  local host="$1"
-
-  if [[ "$host" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    printf '%s\n' "$host"
-  else
-    getent ahostsv4 "$host" | awk '{print $1}' | sort -u
-  fi
-}
-
 pin_proxy_route_in_ns() {
   local ns="$1"
   local idx="$2"
   local proxy_host="$3"
-  local b c gw dev ip
+  local B C
+  read -r B C <<<"$(calc_octets "$idx")"
+  local gw="10.${B}.${C}.1"
+  local dev="${VETH_PREFIX}${idx}n"
 
-  read -r b c <<<"$(calc_octets "$idx")"
-  gw="10.${b}.${c}.1"
-  dev="${VETH_PREFIX}${idx}n"
-
-  while read -r ip; do
-    [[ -n "$ip" ]] || continue
-    ip netns exec "$ns" ip route replace "$ip/32" via "$gw" dev "$dev" || true
-  done < <(resolve_ipv4_targets "$proxy_host")
+  if [[ "$proxy_host" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    ip netns exec "$ns" ip route replace "$proxy_host/32" via "$gw" dev "$dev" || true
+  else
+    mapfile -t ips < <(getent ahostsv4 "$proxy_host" | awk '{print $1}' | sort -u)
+    for ip in "${ips[@]}"; do
+      ip netns exec "$ns" ip route replace "$ip/32" via "$gw" dev "$dev" || true
+    done
+  fi
 }
 
 bypass_dns_via_veth() {
   local ns="$1"
   local idx="$2"
-  local b c gw dev resolv ip
-
-  read -r b c <<<"$(calc_octets "$idx")"
-  gw="10.${b}.${c}.1"
-  dev="${VETH_PREFIX}${idx}n"
-  resolv="/etc/netns/$ns/resolv.conf"
+  local B C
+  read -r B C <<<"$(calc_octets "$idx")"
+  local gw="10.${B}.${C}.1"
+  local dev="${VETH_PREFIX}${idx}n"
+  local resolv="/etc/netns/$ns/resolv.conf"
 
   if [[ -f "$resolv" ]]; then
     while read -r _ ip; do
@@ -181,239 +174,170 @@ bypass_dns_via_veth() {
       [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
       ip netns exec "$ns" ip route replace "$ip/32" via "$gw" dev "$dev" || true
     done < <(grep -E '^\s*nameserver\s+' "$resolv")
+  else
+    for ip in 1.1.1.1 8.8.8.8; do
+      ip netns exec "$ns" ip route replace "$ip/32" via "$gw" dev "$dev" || true
+    done
   fi
 }
 
-configure_ns_egress_killswitch() {
+reset_ns_firewall_allow_all() {
   local ns="$1"
-  local idx="$2"
-  local proxy_host="$3"
-  local b c ns_dev gateway ip
-
-  read -r b c <<<"$(calc_octets "$idx")"
-  ns_dev="${VETH_PREFIX}${idx}n"
-  gateway="10.${b}.${c}.1"
-
-  ip netns exec "$ns" iptables -F
-  ip netns exec "$ns" iptables -P INPUT DROP
-  ip netns exec "$ns" iptables -P OUTPUT DROP
-  ip netns exec "$ns" iptables -P FORWARD DROP
-
-  ip netns exec "$ns" iptables -A INPUT -i lo -j ACCEPT
-  ip netns exec "$ns" iptables -A OUTPUT -o lo -j ACCEPT
-  ip netns exec "$ns" iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-  ip netns exec "$ns" iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-  ip netns exec "$ns" iptables -A INPUT -i tun0 -j ACCEPT
-  ip netns exec "$ns" iptables -A OUTPUT -o tun0 -j ACCEPT
-  ip netns exec "$ns" iptables -A OUTPUT -o "$ns_dev" -d "$gateway" -j ACCEPT
-
-  while read -r ip; do
-    [[ -n "$ip" ]] || continue
-    ip netns exec "$ns" iptables -A OUTPUT -o "$ns_dev" -d "$ip" -j ACCEPT
-  done < <(resolve_ipv4_targets "$proxy_host")
-
-  if [[ "$BYPASS_UDP53" == "1" || "$BYPASS_ALL_UDP" == "1" ]]; then
-    for dns_ip in $NS_DNS_LIST; do
-      ip netns exec "$ns" iptables -A OUTPUT -o "$ns_dev" -d "$dns_ip" -j ACCEPT
-    done
-  fi
+  ip netns exec "$ns" sh -c '
+    iptables -F
+    iptables -t nat -F
+    iptables -t mangle -F
+    iptables -t raw -F 2>/dev/null || true
+    iptables -P INPUT ACCEPT
+    iptables -P OUTPUT ACCEPT
+    iptables -P FORWARD ACCEPT
+  '
 }
 
 configure_policy_routing() {
   local ns="$1"
   local idx="$2"
-  local b c gw dev
-
-  read -r b c <<<"$(calc_octets "$idx")"
-  gw="10.${b}.${c}.1"
-  dev="${VETH_PREFIX}${idx}n"
+  local B C
+  read -r B C <<<"$(calc_octets "$idx")"
+  local gw="10.${B}.${C}.1"
+  local dev="${VETH_PREFIX}${idx}n"
 
   ip netns exec "$ns" ip route replace default via "$gw" dev "$dev" 2>/dev/null || true
   ip netns exec "$ns" ip route flush table "$TUN_TABLE" 2>/dev/null || true
   ip netns exec "$ns" ip route add default dev tun0 table "$TUN_TABLE" 2>/dev/null || true
   ip netns exec "$ns" ip rule add fwmark "$FWMARK" lookup main priority 100 2>/dev/null || true
-
   if [[ "$BYPASS_ALL_UDP" == "1" ]]; then
     ip netns exec "$ns" ip rule add ipproto udp lookup main priority 101 2>/dev/null || true
   elif [[ "$BYPASS_UDP53" == "1" ]]; then
     ip netns exec "$ns" ip rule add ipproto udp dport 53 lookup main priority 101 2>/dev/null || true
     ip netns exec "$ns" ip rule add iif lo ipproto udp dport 53 lookup main priority 102 2>/dev/null || true
   fi
-
   ip netns exec "$ns" ip rule add lookup "$TUN_TABLE" priority 200 2>/dev/null || true
 }
 
-load_accounts() {
-  mapfile -t HONEYGAIN_ACCOUNTS_LIST < <(printf '%s\n' "$HONEYGAIN_ACCOUNTS_RAW" | sed '/^\s*$/d')
-  (( ${#HONEYGAIN_ACCOUNTS_LIST[@]} > 0 )) || {
-    echo "No Honeygain accounts supplied."
-    exit 1
-  }
+email_mailname() {
+  local email="$1"
+  local localpart="${email%@*}"
+  local sanitized
+  sanitized="$(printf '%s' "$localpart" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g')"
+  printf '%s' "${sanitized:-device}"
 }
 
-start_instance() {
+start_tun2socks_and_honeygain() {
   local idx="$1"
   local proxy="$2"
   local email="$3"
   local password="$4"
-  local device_no="$5"
-  local parsed proto user pass host port ns b c
-  local t_pidfile t_logfile t_cfgfile fwmark_dec tun_ip inst_dir mailname device_name
+  local device_num="$5"
 
-  parsed="$(parse_proxy "$proxy")" || {
-    echo "[$idx] Bad proxy: $proxy"
-    return 1
-  }
+  local parsed proto user pass host port
+  parsed="$(parse_proxy "$proxy")" || { echo "[$idx] Bad proxy: $proxy"; return 1; }
   read -r proto user pass host port <<<"$parsed"
 
+  local ns
   ns="$(create_ns_with_veth "$idx")"
-  read -r b c <<<"$(calc_octets "$idx")"
+
+  local B C
+  read -r B C <<<"$(calc_octets "$idx")"
+
+  ip netns exec "$ns" ip tuntap add dev tun0 mode tun
+  ip netns exec "$ns" ip addr add "198.18.${B}.${C}/30" dev tun0
+  ip netns exec "$ns" ip link set tun0 up
+
   pin_proxy_route_in_ns "$ns" "$idx" "$host"
 
-  t_pidfile="$WORKDIR/hev-socks5-tunnel_${idx}.pid"
-  t_logfile="$WORKDIR/hev-socks5-tunnel_${idx}.log"
-  t_cfgfile="$WORKDIR/hev-socks5-tunnel_${idx}.yml"
-  fwmark_dec=$((FWMARK))
-  tun_ip="198.18.${b}.${c}"
-
-  if [[ "$proto" == "socks5h" ]]; then
-    proto="socks5"
-  fi
-  if [[ "$proto" != "socks5" ]]; then
-    echo "[$idx] Unsupported proxy protocol for Honeygain/hev-socks5-tunnel: $proto"
-    return 1
-  fi
-
-  cat > "$t_cfgfile" <<CFG
-
-tunnel:
-  name: tun0
-  mtu: 8500
-  ipv4: $tun_ip
-socks5:
-  address: $host
-  port: $port
-  udp: 'udp'
-  username: '$user'
-  password: '$pass'
-  mark: $fwmark_dec
-misc:
-  log-file: stderr
-  log-level: info
-CFG
-
-  ip netns exec "$ns" bash -c "hev-socks5-tunnel '$t_cfgfile' >'$t_logfile' 2>&1 & echo \$! > '$t_pidfile'"
-  ip netns exec "$ns" bash -c 'for i in {1..50}; do ip link show tun0 >/dev/null 2>&1 && exit 0; sleep 0.1; done; exit 1' || {
-    echo "[$idx] tun0 was not created by hev-socks5-tunnel"
-    return 1
-  }
+  local t_pidfile="$WORKDIR/tun2socks_${idx}.pid"
+  local t_logfile="$WORKDIR/tun2socks_${idx}.log"
+  ip netns exec "$ns" bash -c "
+    tun2socks -device tun0 -proxy '$proxy' -fwmark '$FWMARK' >'$t_logfile' 2>&1 &
+    echo \$! > '$t_pidfile'
+  "
 
   configure_policy_routing "$ns" "$idx"
   bypass_dns_via_veth "$ns" "$idx"
-  configure_ns_egress_killswitch "$ns" "$idx" "$host"
+  reset_ns_firewall_allow_all "$ns"
 
-  inst_dir="$WORKDIR/inst_${idx}"
-  mailname="${email%@*}"
-  device_name="${mailname}-${device_no}"
+  local inst_dir="$WORKDIR/inst_${idx}"
+  local mailname
+  mailname="$(email_mailname "$email")"
+  local device_name="${mailname}-${device_num}"
+  local app_logfile="$WORKDIR/honeygain_${idx}.log"
   mkdir -p "$inst_dir"
 
-  echo "[$idx] Starting Honeygain for $email as device $device_name via proxy=$proxy"
-  ip netns exec "$ns" bash -c "cd '$(pwd)'; export HOME='$inst_dir'; export LD_LIBRARY_PATH='$HONEYGAIN_LIB_DIR:\${LD_LIBRARY_PATH:-}'; exec '$HONEYGAIN_BIN' -tou-accept -email '$email' -pass '$password' -device '$device_name'" \
-    > "$WORKDIR/app_${idx}.log" 2>&1 &
-  echo $! > "$WORKDIR/app_${idx}.pid"
-}
+  echo "[$idx] Starting Honeygain for $email as device=$device_name via proxy=$proxy (netns=$ns)"
+  ip netns exec "$ns" bash -c "cd '$(pwd)'; export HOME='$inst_dir'; '$HONEYGAIN_BIN' -tou-accept -email '$email' -pass '$password' -device '$device_name'" \
+    >"$app_logfile" 2>&1 &
 
-CLEANING_UP=0
-
-stop_pidfiles() {
-  local f pid
-  for f in "$WORKDIR"/app_*.pid "$WORKDIR"/hev-socks5-tunnel_*.pid; do
-    [[ -f "$f" ]] || continue
-    pid="$(cat "$f")"
-    kill -TERM "$pid" 2>/dev/null || true
-  done
-  sleep 1
-  for f in "$WORKDIR"/app_*.pid "$WORKDIR"/hev-socks5-tunnel_*.pid; do
-    [[ -f "$f" ]] || continue
-    pid="$(cat "$f")"
-    kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null || true
-  done
+  echo $! >"$WORKDIR/honeygain_${idx}.pid"
 }
 
 cleanup() {
-  local ns idx
-  [[ "$CLEANING_UP" == "1" ]] && return
-  CLEANING_UP=1
-
   echo
-  echo "Cleaning up Honeygain..."
-  stop_pidfiles
+  echo "Cleaning up Honeygain namespaces..."
+  for f in "$WORKDIR"/honeygain_*.pid; do [[ -f "$f" ]] && kill "$(cat "$f")" 2>/dev/null || true; done
+  for f in "$WORKDIR"/tun2socks_*.pid; do [[ -f "$f" ]] && kill "$(cat "$f")" 2>/dev/null || true; done
   for ns in $(ip netns list | awk '{print $1}' | grep -E "^${BASE_NS}[0-9]+$" || true); do
-    idx="${ns#${BASE_NS}}"
+    local idx="${ns#${BASE_NS}}"
     ip link del "${VETH_PREFIX}${idx}h" 2>/dev/null || true
     ip netns del "$ns" 2>/dev/null || true
     rm -rf "/etc/netns/$ns" 2>/dev/null || true
   done
 }
-trap 'cleanup; exit 0' INT TERM
 trap cleanup EXIT
 
 main() {
-  local max_devices used account_index device_no entry email password proxy
-
   require_root
+  load_honeygain_accounts
   setup_nat_once
-  load_accounts
-
-  [[ -f "$PROXY_FILE" ]] || {
-    echo "Proxy file not found: $PROXY_FILE"
-    exit 1
-  }
+  [[ -f "$PROXY_FILE" ]] || { echo "Proxy file not found: $PROXY_FILE"; exit 1; }
 
   mapfile -t proxies < <(grep -vE '^\s*$|^\s*#' "$PROXY_FILE" | tr -d '\r')
-  (( ${#proxies[@]} > 0 )) || {
-    echo "No proxies in $PROXY_FILE"
-    exit 1
-  }
+  (( ${#proxies[@]} > 0 )) || { echo "No proxies in $PROXY_FILE"; exit 1; }
 
+  local max_devices=$(( ${#HONEYGAIN_ACCOUNTS[@]} * DEVICES_PER_ACCOUNT ))
   echo "Loaded ${#proxies[@]} proxies from $PROXY_FILE"
-  echo "Honeygain accounts available: ${#HONEYGAIN_ACCOUNTS_LIST[@]}"
+  echo "Loaded ${#HONEYGAIN_ACCOUNTS[@]} Honeygain account(s); capacity=${max_devices} devices"
 
-  max_devices=$(( ${#HONEYGAIN_ACCOUNTS_LIST[@]} * DEVICES_PER_ACCOUNT ))
-  if (( ${#proxies[@]} > max_devices )); then
-    echo "Only $max_devices proxies can be used because each Honeygain account is limited to $DEVICES_PER_ACCOUNT devices. Extra proxies will be skipped."
-  fi
-
-  used=0
+  local used=0
+  local i=0
+  local proxy res account_idx device_num email password account_entry
   for proxy in "${proxies[@]}"; do
+    i=$((i+1))
+
     if (( used >= max_devices )); then
+      echo "Reached Honeygain capacity (${max_devices} devices across ${#HONEYGAIN_ACCOUNTS[@]} account(s)). Remaining proxies are skipped."
       break
     fi
 
-    if [[ "$CHECK_WORKING" == "1" ]] && ! check_proxy "$proxy"; then
-      echo "[src] dead: $proxy"
-      continue
+    if [[ "$CHECK_WORKING" == "1" ]]; then
+      res="$(check_proxy "$proxy" || true)"
+      if [[ "$res" == FAIL* ]]; then
+        echo "[src#$i] dead: $proxy"
+        continue
+      fi
+      if [[ "$res" == SLOW* ]]; then
+        echo "[src#$i] too slow ($res): $proxy"
+        continue
+      fi
+      echo "[src#$i] ok ($res): $proxy"
     fi
 
-    account_index=$(( used / DEVICES_PER_ACCOUNT ))
-    device_no=$(( used % DEVICES_PER_ACCOUNT + 1 ))
-    entry="${HONEYGAIN_ACCOUNTS_LIST[$account_index]}"
-    email="${entry%%|*}"
-    password="${entry#*|}"
-    used=$((used + 1))
+    used=$((used+1))
+    account_idx=$(( (used - 1) / DEVICES_PER_ACCOUNT ))
+    device_num=$(( (used - 1) % DEVICES_PER_ACCOUNT + 1 ))
+    account_entry="${HONEYGAIN_ACCOUNTS[$account_idx]}"
+    email="${account_entry%%|*}"
+    password="${account_entry#*|}"
 
-    start_instance "$used" "$proxy" "$email" "$password" "$device_no"
+    start_tun2socks_and_honeygain "$used" "$proxy" "$email" "$password" "$device_num"
   done
 
-  (( used > 0 )) || {
-    echo "No usable proxies after filtering."
-    exit 1
-  }
+  (( used > 0 )) || { echo "No usable proxies after filtering."; exit 1; }
 
   echo
-  echo "Started $used Honeygain instance(s). Logs:"
-  echo "  $WORKDIR/app_*.log"
-  echo "  $WORKDIR/hev-socks5-tunnel_*.log"
+  echo "Started $used Honeygain device(s). Logs:"
+  echo "  $WORKDIR/honeygain_*.log"
+  echo "  $WORKDIR/tun2socks_*.log"
   echo "Ctrl+C to stop and cleanup."
   wait
 }

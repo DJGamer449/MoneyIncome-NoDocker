@@ -22,7 +22,6 @@ INSTALL_SCRIPT="$BASE_DIR/install_hev-socks5-tunnel.sh"
 MYST_INSTALL_SCRIPT="$BASE_DIR/install_mysterium_node.sh"
 WIPTER_SCRIPT="$BASE_DIR/direct_wipter.sh"
 HONEYGAIN_SCRIPT="$BASE_DIR/direct_honeygain.sh"
-MYSTERIUM_SCRIPT="$BASE_DIR/direct_mysterium.sh"
 HONEYGAIN_ACCOUNTS_FILE="$BASE_DIR/honeygain_password.txt"
 
 PIDS=()
@@ -43,7 +42,6 @@ declare -A NS_INDEX=(
   [urns]=5
   [wipterns]=6
   [honeyns]=7
-  [mysterns]=8
 )
 
 CREATED_NETNS=()
@@ -54,6 +52,7 @@ HOST_IF="$(ip route show default 2>/dev/null | awk '/default/ {print $5; exit}')
 
 kernel_tune() {
   echo "Applying conservative kernel tuning for high-scale (safe defaults)..."
+
   sudo modprobe nf_conntrack 2>/dev/null || true
   ulimit -n 2097152 || true
   sudo sysctl -w fs.file-max=1000000 >/dev/null || true
@@ -75,6 +74,7 @@ kernel_tune() {
   sudo modprobe tcp_bbr 2>/dev/null || true
   sudo sysctl -w net.core.default_qdisc=fq >/dev/null || true
   sudo sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null || true
+
   echo "Kernel tuning applied (conservative)."
 }
 
@@ -116,36 +116,30 @@ create_netns_with_veth() {
   sudo ip netns exec "$ns" ip link set "$ns_if" up
   sudo ip netns exec "$ns" ip link set lo up
   sudo ip netns exec "$ns" ip route add default via "10.200.${idx}.1" || true
+
   sudo mkdir -p "/etc/netns/$ns"
   echo "nameserver 1.1.1.1" | sudo tee /etc/netns/"$ns"/resolv.conf >/dev/null
   echo "nameserver 8.8.8.8" | sudo tee -a /etc/netns/"$ns"/resolv.conf >/dev/null
+
   sudo iptables -t nat -A POSTROUTING -s "$subnet" -o "$HOST_IF" -j MASQUERADE
   CREATED_SUBNETS+=("$subnet")
   echo "Netns $ns created: host dev $host_if ($host_ip) <-> ns dev $ns_if ($ns_ip)."
-}
-
-stop_tracked_pids() {
-  local pid
-  for pid in "${PIDS[@]:-}"; do
-    kill -TERM "$pid" 2>/dev/null || true
-  done
-  sleep 1
-  for pid in "${PIDS[@]:-}"; do
-    kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null || true
-  done
-  for pid in "${PIDS[@]:-}"; do
-    wait "$pid" 2>/dev/null || true
-  done
 }
 
 cleanup() {
   [[ "$EXITING" == "1" ]] && return
   EXITING=1
   echo -e "\nStopping all running services..."
-  stop_tracked_pids
+
+  for pid in "${PIDS[@]:-}"; do
+    kill "$pid" 2>/dev/null || true
+  done
+  wait 2>/dev/null || true
+
   for subnet in "${CREATED_SUBNETS[@]:-}"; do
     sudo iptables -t nat -D POSTROUTING -s "$subnet" -o "$HOST_IF" -j MASQUERADE 2>/dev/null || true
   done
+
   for ns in "${CREATED_NETNS[@]:-}"; do
     sudo ip netns delete "$ns" 2>/dev/null || true
     sudo rm -rf /etc/netns/"$ns" 2>/dev/null || true
@@ -178,91 +172,94 @@ install_earnapp() {
 
 load_honeygain_accounts() {
   HONEYGAIN_ACCOUNTS=()
-  [[ -f "$HONEYGAIN_ACCOUNTS_FILE" ]] || return 0
-  while IFS='|' read -r email password; do
-    [[ -n "${email:-}" && -n "${password:-}" ]] || continue
-    HONEYGAIN_ACCOUNTS+=("${email}|${password}")
-  done < "$HONEYGAIN_ACCOUNTS_FILE"
+  if [[ -f "$HONEYGAIN_ACCOUNTS_FILE" ]]; then
+    while IFS='|' read -r email password; do
+      [[ -n "${email:-}" && -n "${password:-}" ]] || continue
+      HONEYGAIN_ACCOUNTS+=("$email|$password")
+    done < "$HONEYGAIN_ACCOUNTS_FILE"
+  fi
 }
+
+declare -a HONEYGAIN_ACCOUNTS=()
 
 save_honeygain_accounts() {
   : > "$HONEYGAIN_ACCOUNTS_FILE"
   chmod 600 "$HONEYGAIN_ACCOUNTS_FILE"
-  local entry
-  for entry in "${HONEYGAIN_ACCOUNTS[@]:-}"; do
-    printf '%s\n' "$entry" >> "$HONEYGAIN_ACCOUNTS_FILE"
+  local account
+  for account in "${HONEYGAIN_ACCOUNTS[@]}"; do
+    printf '%s\n' "$account" >> "$HONEYGAIN_ACCOUNTS_FILE"
   done
 }
 
-prompt_honeygain_account() {
+collect_honeygain_accounts() {
+  local mode="$1"
+  local count=1
   local email password
-  while true; do
-    read -rp "Enter Honeygain email: " email
-    [[ -n "$email" ]] && break
-    echo "Email cannot be empty."
+
+  if [[ "$mode" == "multiple" ]]; then
+    while true; do
+      read -rp "How many Honeygain accounts do you want to add? " count
+      [[ "$count" =~ ^[1-9][0-9]*$ ]] && break
+      echo "Please enter a valid number greater than 0."
+    done
+  fi
+
+  for ((i=1; i<=count; i++)); do
+    echo "Honeygain account $i"
+    while true; do
+      read -rp "Email: " email
+      [[ -n "$email" ]] && break
+      echo "Email cannot be empty."
+    done
+    while true; do
+      read -rsp "Password: " password
+      echo
+      [[ -n "$password" ]] && break
+      echo "Password cannot be empty."
+    done
+    HONEYGAIN_ACCOUNTS+=("$email|$password")
   done
-  while true; do
-    read -rsp "Enter Honeygain password: " password
-    echo
-    [[ -n "$password" ]] && break
-    echo "Password cannot be empty."
-  done
-  HONEYGAIN_ACCOUNTS+=("${email}|${password}")
 }
 
 setup_honeygain_accounts() {
   load_honeygain_accounts
 
-  echo "------ Honeygain Account Setup ------"
-  if ((${#HONEYGAIN_ACCOUNTS[@]} > 0)); then
-    echo "Saved Honeygain accounts found: ${#HONEYGAIN_ACCOUNTS[@]}"
-    local idx=1 entry email
-    for entry in "${HONEYGAIN_ACCOUNTS[@]}"; do
-      email="${entry%%|*}"
-      echo "  ${idx}) ${email}"
-      idx=$((idx+1))
-    done
-    read -rp "Use saved accounts? [Y/n]: " use_saved
-    if [[ "$use_saved" =~ ^[Nn]$ ]]; then
+  if (( ${#HONEYGAIN_ACCOUNTS[@]} > 0 )); then
+    echo "Found ${#HONEYGAIN_ACCOUNTS[@]} saved Honeygain account(s) in $(basename "$HONEYGAIN_ACCOUNTS_FILE")."
+    read -rp "Do you want to use the saved Honeygain accounts? [Y/n]: " reuse_choice
+    reuse_choice="${reuse_choice:-Y}"
+    if [[ ! "$reuse_choice" =~ ^[Yy]$ ]]; then
       HONEYGAIN_ACCOUNTS=()
     else
-      read -rp "Add more accounts to previous setup? [y/N]: " add_more_saved
-      if [[ "$add_more_saved" =~ ^[Yy]$ ]]; then
-        while true; do
-          prompt_honeygain_account
-          read -rp "Add another Honeygain account? [y/N]: " another
-          [[ "$another" =~ ^[Yy]$ ]] || break
-        done
+      read -rp "Do you want to add more Honeygain accounts before starting? [y/N]: " add_more_choice
+      if [[ "$add_more_choice" =~ ^[Yy]$ ]]; then
+        collect_honeygain_accounts multiple
       fi
     fi
   fi
 
-  if ((${#HONEYGAIN_ACCOUNTS[@]} == 0)); then
-    local mode
+  if (( ${#HONEYGAIN_ACCOUNTS[@]} == 0 )); then
+    echo "Honeygain setup:"
+    echo "1) Single account"
+    echo "2) Multiple accounts"
+    local setup_choice
     while true; do
-      echo "1) Single account"
-      echo "2) Multiple accounts"
-      read -rp "Choose Honeygain mode [1-2]: " mode
-      case "$mode" in
-        1)
-          prompt_honeygain_account
-          break
-          ;;
-        2)
-          while true; do
-            prompt_honeygain_account
-            read -rp "Add another Honeygain account? [y/N]: " another_multi
-            [[ "$another_multi" =~ ^[Yy]$ ]] || break
-          done
-          break
-          ;;
-        *) echo "Invalid option." ;;
+      read -rp "Select option [1-2]: " setup_choice
+      case "$setup_choice" in
+        1) collect_honeygain_accounts single; break ;;
+        2) collect_honeygain_accounts multiple; break ;;
+        *) echo "Invalid option. Please choose 1 or 2." ;;
       esac
     done
   fi
 
+  if (( ${#HONEYGAIN_ACCOUNTS[@]} == 0 )); then
+    echo "No Honeygain accounts configured."
+    return 1
+  fi
+
   save_honeygain_accounts
-  echo "Honeygain accounts ready: ${#HONEYGAIN_ACCOUNTS[@]}"
+  echo "Saved ${#HONEYGAIN_ACCOUNTS[@]} Honeygain account(s) to $(basename "$HONEYGAIN_ACCOUNTS_FILE")."
 }
 
 clone_and_run() {
@@ -396,6 +393,28 @@ run_mysterium() {
   sudo BASE_NS=mysterns VETH_PREFIX=myster WORKDIR=/tmp/mysterium_multi \
     MYST_BASE_DIR="$BASE_DIR/myst" \
     bash "$MYSTERIUM_SCRIPT" proxies.txt &
+  PIDS+=($!)
+}
+
+run_honeygain() {
+  if [[ ! -x "$HONEYGAIN_SCRIPT" ]]; then
+    echo "direct_honeygain.sh not found or not executable at $HONEYGAIN_SCRIPT"
+    return
+  fi
+
+  if [[ ! -x "$BASE_DIR/app/honeygain_file/honeygain" ]]; then
+    echo "Honeygain binary not found or not executable at $BASE_DIR/app/honeygain_file/honeygain"
+    return
+  fi
+
+  setup_honeygain_accounts || return
+  create_netns_with_veth "honeyns" "honey" "${NS_INDEX[honeyns]}"
+  echo "Starting Honeygain..."
+  sudo BASE_NS=honeyns \
+       VETH_PREFIX=honey \
+       WORKDIR=/tmp/honeygain_multi \
+       HONEYGAIN_ACCOUNTS_FILE="$HONEYGAIN_ACCOUNTS_FILE" \
+       bash "$HONEYGAIN_SCRIPT" proxies.txt &
   PIDS+=($!)
 }
 
