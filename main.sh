@@ -18,7 +18,8 @@ BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 EARNAPP_SCRIPT="$BASE_DIR/direct_earnapp.sh"
 TRAFF_SCRIPT="$BASE_DIR/direct_traff.sh"
 UR_SCRIPT="$BASE_DIR/direct_urnetwork.sh"
-INSTALL_SCRIPT="$BASE_DIR/install_tun2socks.sh"
+INSTALL_SCRIPT="$BASE_DIR/install_hev-socks5-tunnel.sh"
+MYST_INSTALL_SCRIPT="$BASE_DIR/install_mysterium_node.sh"
 WIPTER_SCRIPT="$BASE_DIR/direct_wipter.sh"
 HONEYGAIN_SCRIPT="$BASE_DIR/direct_honeygain.sh"
 HONEYGAIN_ACCOUNTS_FILE="$BASE_DIR/honeygain_password.txt"
@@ -30,6 +31,7 @@ PS_TOKEN=""
 CASTAR_KEY=""
 WIPTER_EMAIL=""
 WIPTER_PASSWORD=""
+HONEYGAIN_ACCOUNTS=()
 
 # maps ns name -> numeric index used for subnet allocation
 declare -A NS_INDEX=(
@@ -42,18 +44,12 @@ declare -A NS_INDEX=(
   [honeyns]=7
 )
 
-# store created namespaces for cleanup
 CREATED_NETNS=()
-# store iptables rules we added (subnets) for cleanup
 CREATED_SUBNETS=()
 
-# detect host default interface for NAT
 HOST_IF="$(ip route show default 2>/dev/null | awk '/default/ {print $5; exit}')"
-[ -n "$HOST_IF" ] || HOST_IF="eth0"  # fallback
+[ -n "$HOST_IF" ] || HOST_IF="eth0"
 
-# ===============================
-# KERNEL TUNE (conservative & safer)
-# ===============================
 kernel_tune() {
   echo "Applying conservative kernel tuning for high-scale (safe defaults)..."
 
@@ -103,7 +99,6 @@ create_netns_with_veth() {
   fi
 
   echo "Creating netns $ns with veth prefix ${veth_prefix} idx ${idx}..."
-
   sudo ip netns add "$ns"
   CREATED_NETNS+=("$ns")
 
@@ -128,7 +123,6 @@ create_netns_with_veth() {
 
   sudo iptables -t nat -A POSTROUTING -s "$subnet" -o "$HOST_IF" -j MASQUERADE
   CREATED_SUBNETS+=("$subnet")
-
   echo "Netns $ns created: host dev $host_if ($host_ip) <-> ns dev $ns_if ($ns_ip)."
 }
 
@@ -150,7 +144,6 @@ cleanup() {
     sudo ip netns delete "$ns" 2>/dev/null || true
     sudo rm -rf /etc/netns/"$ns" 2>/dev/null || true
   done
-
   echo "All services and network namespaces stopped/removed."
   exit 0
 }
@@ -161,7 +154,6 @@ ask_tokens() {
   read -rp "Enter Traff token (or leave blank): " TRAFF_TOKEN
   read -rp "Enter PacketStream CID token (or leave blank): " PS_TOKEN
   read -rp "Enter Castar Key (or leave blank): " CASTAR_KEY
-
   echo "------ Wipter Credentials ------"
   read -rp "Enter Wipter Email (or leave blank): " WIPTER_EMAIL
   read -rsp "Enter Wipter Password (hidden, leave blank to skip): " WIPTER_PASSWORD
@@ -170,7 +162,7 @@ ask_tokens() {
 }
 
 install_dependencies() {
-  sudo apt update && sudo apt install -y curl wget unzip iproute2 iptables uuid-runtime jq net-tools git
+  sudo apt update && sudo apt install -y curl wget unzip iproute2 iptables uuid-runtime jq net-tools git socat
 }
 
 install_earnapp() {
@@ -290,11 +282,9 @@ clone_and_run() {
   fi
 
   create_netns_with_veth "$ns_name" "$veth_prefix" "$idx"
-
   echo "Starting $app_name inside namespace $ns_name..."
   sudo ip netns exec "$ns_name" bash -lc "cd '$dest' && nohup $run_cmd >/tmp/${app_name}.log 2>&1 & echo \$!" \
     | { read -r pid; echo "$pid"; PIDS+=("$pid"); } >/dev/null 2>&1 || true
-
   echo "$app_name started (check /tmp/${app_name}.log in namespace context)."
 }
 
@@ -359,20 +349,50 @@ run_wipter() {
     echo "Place direct_wipter.sh in $BASE_DIR and chmod +x it."
     return
   fi
-
   if [[ -z "${WIPTER_EMAIL:-}" || -z "${WIPTER_PASSWORD:-}" ]]; then
     echo "Wipter credentials not set. Please restart and provide them, or set WIPTER_EMAIL/WIPTER_PASSWORD in environment."
     return
   fi
-
   create_netns_with_veth "wipterns" "wipter" "${NS_INDEX[wipterns]}"
   echo "Starting Wipter..."
-  sudo BASE_NS=wipterns \
-       VETH_PREFIX=wipter \
-       WORKDIR=/tmp/wipter_multi \
-       WIPTER_EMAIL="$WIPTER_EMAIL" \
-       WIPTER_PASSWORD="$WIPTER_PASSWORD" \
-       bash "$WIPTER_SCRIPT" proxies.txt &
+  sudo BASE_NS=wipterns VETH_PREFIX=wipter WORKDIR=/tmp/wipter_multi WIPTER_EMAIL="$WIPTER_EMAIL" WIPTER_PASSWORD="$WIPTER_PASSWORD" \
+    bash "$WIPTER_SCRIPT" proxies.txt &
+  PIDS+=($!)
+}
+
+run_honeygain() {
+  if [[ ! -x "$HONEYGAIN_SCRIPT" ]]; then
+    echo "direct_honeygain.sh not found or not executable at $HONEYGAIN_SCRIPT"
+    return
+  fi
+  if [[ ! -x "$BASE_DIR/app/honeygain_file/honeygain" ]]; then
+    echo "Honeygain binary missing at app/honeygain_file/honeygain"
+    return
+  fi
+
+  setup_honeygain_accounts
+  if ((${#HONEYGAIN_ACCOUNTS[@]} == 0)); then
+    echo "No Honeygain accounts configured."
+    return
+  fi
+
+  local account_blob
+  account_blob=$(printf '%s\n' "${HONEYGAIN_ACCOUNTS[@]}")
+  echo "Starting Honeygain with ${#HONEYGAIN_ACCOUNTS[@]} account(s)..."
+  sudo BASE_NS=honeyns VETH_PREFIX=honey WORKDIR=/tmp/honeygain_multi HONEYGAIN_ACCOUNTS="$account_blob" \
+    bash "$HONEYGAIN_SCRIPT" proxies.txt &
+  PIDS+=($!)
+}
+
+run_mysterium() {
+  if [[ ! -x "$MYSTERIUM_SCRIPT" ]]; then
+    echo "direct_mysterium.sh not found or not executable at $MYSTERIUM_SCRIPT"
+    return
+  fi
+  echo "Starting Mysterium node instances..."
+  sudo BASE_NS=mysterns VETH_PREFIX=myster WORKDIR=/tmp/mysterium_multi \
+    MYST_BASE_DIR="$BASE_DIR/myst" \
+    bash "$MYSTERIUM_SCRIPT" proxies.txt &
   PIDS+=($!)
 }
 
@@ -405,13 +425,15 @@ menu() {
   echo "3) Run PacketStream"
   echo "4) Run UrNetwork"
   echo "5) Run Castar"
-  echo "6) Install tun2socks"
+  echo "6) Install hev-socks5-tunnel"
   echo "7) Install EarnApp Binary"
   echo "8) Install Dependencies"
   echo "9) Run ALL (Safe Mode)"
   echo "A) Clone & Run custom repo"
   echo "H) Run Honeygain"
   echo "W) Run Wipter"
+  echo "M) Run Mysterium Node"
+  echo "I) Install Mysterium Node"
   echo "0) Exit"
   echo "==============================================="
 }
@@ -439,6 +461,7 @@ while true; do
       run_castar
       run_honeygain
       run_wipter
+      run_mysterium
       echo "All services running (staggered safe mode). Press Ctrl+C to stop."
       wait
       ;;
@@ -450,6 +473,8 @@ while true; do
       ;;
     H|h) run_honeygain ; wait ;;
     W|w) run_wipter ; wait ;;
+    M|m) run_mysterium ; wait ;;
+    I|i) sudo bash "$MYST_INSTALL_SCRIPT" ; wait ;;
     0) cleanup ;;
     *) echo "Invalid option." ;;
   esac

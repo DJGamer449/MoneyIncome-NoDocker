@@ -13,7 +13,7 @@ MAX_LAT_MS="${MAX_LAT_MS:-1500}"        # if CHECK_SPEED=1, reject slower than t
 CONNECT_TIMEOUT="${CONNECT_TIMEOUT:-5}"
 TOTAL_TIMEOUT="${TOTAL_TIMEOUT:-12}"
 
-# DNS: per-namespace resolv.conf + bypass tun2socks for those nameservers
+# DNS: per-namespace resolv.conf + bypass hev-socks5-tunnel for those nameservers
 FORCE_NS_DNS="${FORCE_NS_DNS:-1}"        # keep 1
 NS_DNS_LIST="${NS_DNS_LIST:-1.1.1.1 8.8.8.8}"  # space-separated
 
@@ -23,7 +23,7 @@ VETH_PREFIX="${VETH_PREFIX:-veth}"
 WORKDIR="${WORKDIR:-/tmp/pxns_clones}"
 mkdir -p "$WORKDIR"
 
-# === MATCH xjasonlyu/tun2socks docker ===
+# === MATCH heiher/hev-socks5-tunnel docker ===
 FWMARK="${FWMARK:-0x22b}"
 
 # Routing:
@@ -39,7 +39,7 @@ require_root() {
     echo "Run as root. Example: sudo $0 $PROXY_FILE"
     exit 1
   fi
-  command -v tun2socks >/dev/null 2>&1 || { echo "tun2socks not found in PATH"; exit 1; }
+  command -v hev-socks5-tunnel >/dev/null 2>&1 || { echo "hev-socks5-tunnel not found in PATH"; exit 1; }
 }
 
 # Map instance index -> per-instance IPv4s without hitting the 0..255 octet limit.
@@ -153,7 +153,7 @@ create_ns_with_veth() {
   ip netns exec "$ns" ip link set lo up
   ip netns exec "$ns" ip link set "$veth_ns" up
 
-  # Temporary default route via host (so tun2socks can reach proxy server)
+  # Temporary default route via host (so hev-socks5-tunnel can reach proxy server)
   ip netns exec "$ns" ip route replace default via "10.${B}.${C}.1" dev "$veth_ns"
 
   # Per-namespace resolv.conf (recommended)
@@ -190,7 +190,7 @@ pin_proxy_route_in_ns() {
   fi
 }
 
-# route nameserver IPs via veth (direct) so DNS works even if tun2socks/proxy UDP is bad
+# route nameserver IPs via veth (direct) so DNS works even if hev-socks5-tunnel/proxy UDP is bad
 bypass_dns_via_veth() {
   local ns="$1"
   local idx="$2"
@@ -246,7 +246,7 @@ configure_policy_routing() {
   ip netns exec "$ns" ip route add default dev tun0 table "$TUN_TABLE" 2>/dev/null || true
 
   # Rule order matters (lower priority number = earlier)
-  # 1) tun2socks' own marked sockets must go DIRECT (avoid proxy loop)
+  # 1) hev-socks5-tunnel' own marked sockets must go DIRECT (avoid proxy loop)
   ip netns exec "$ns" ip rule add fwmark "$FWMARK" lookup main priority 100 2>/dev/null || true
 
   # 2) DNS (UDP/53) must go DIRECT for HTTP proxies (no UDP support)
@@ -263,7 +263,7 @@ configure_policy_routing() {
 }
 
 
-start_tun2socks_and_app() {
+start_hev_socks5_tunnel_and_app() {
   local idx="$1"
   local proxy="$2"
 
@@ -277,21 +277,51 @@ start_tun2socks_and_app() {
   local B C
   read -r B C <<<"$(calc_octets "$idx")"
 
-  # Create TUN inside namespace
-  ip netns exec "$ns" ip tuntap add dev tun0 mode tun
-  ip netns exec "$ns" ip addr add "198.18.${B}.${C}/30" dev tun0
-  ip netns exec "$ns" ip link set tun0 up
-
   # Avoid proxy-loop
   pin_proxy_route_in_ns "$ns" "$idx" "$host"
 
-  # Start tun2socks in namespace (ADD FWMARK + LOG FILE)
-  local t_pidfile="$WORKDIR/tun2socks_${idx}.pid"
-  local t_logfile="$WORKDIR/tun2socks_${idx}.log"
+  # Start hev-socks5-tunnel in namespace
+  local t_pidfile="$WORKDIR/hev-socks5-tunnel_${idx}.pid"
+  local t_logfile="$WORKDIR/hev-socks5-tunnel_${idx}.log"
+  local t_cfgfile="$WORKDIR/hev-socks5-tunnel_${idx}.yml"
+  local fwmark_dec=$((FWMARK))
+  local tun_ip="198.18.${B}.${C}"
+
+  if [[ "$proto" == "socks5h" ]]; then
+    proto="socks5"
+  fi
+  if [[ "$proto" != "socks5" ]]; then
+    echo "[$idx] Unsupported proxy protocol for hev-socks5-tunnel: $proto"
+    return 1
+  fi
+
+  cat >"$t_cfgfile" <<EOF
+
+tunnel:
+  name: tun0
+  mtu: 8500
+  ipv4: $tun_ip
+socks5:
+  address: $host
+  port: $port
+  udp: 'udp'
+  username: '$user'
+  password: '$pass'
+  mark: $fwmark_dec
+misc:
+  log-file: stderr
+  log-level: info
+EOF
+
   ip netns exec "$ns" bash -c "
-    tun2socks -device tun0 -proxy '$proxy' -fwmark '$FWMARK' >'$t_logfile' 2>&1 &
+    hev-socks5-tunnel '$t_cfgfile' >'$t_logfile' 2>&1 &
     echo \$! > '$t_pidfile'
   "
+
+  ip netns exec "$ns" bash -c 'for i in {1..50}; do ip link show tun0 >/dev/null 2>&1 && exit 0; sleep 0.1; done; exit 1' || {
+    echo "[$idx] tun0 was not created by hev-socks5-tunnel"
+    return 1
+  }
 
   # Policy routing (docker-style): keep main=direct, send most traffic to tun0 via table
   configure_policy_routing "$ns" "$idx"
@@ -317,7 +347,7 @@ cleanup() {
   echo
   echo "Cleaning up..."
   for f in "$WORKDIR"/app_*.pid; do [[ -f "$f" ]] && kill "$(cat "$f")" 2>/dev/null || true; done
-  for f in "$WORKDIR"/tun2socks_*.pid; do [[ -f "$f" ]] && kill "$(cat "$f")" 2>/dev/null || true; done
+  for f in "$WORKDIR"/hev-socks5-tunnel_*.pid; do [[ -f "$f" ]] && kill "$(cat "$f")" 2>/dev/null || true; done
 
   for ns in $(ip netns list | awk '{print $1}' | grep -E "^${BASE_NS}[0-9]+$" || true); do
     local idx="${ns#${BASE_NS}}"
@@ -361,7 +391,7 @@ main() {
     fi
 
     used=$((used+1))
-    start_tun2socks_and_app "$used" "$p"
+    start_hev_socks5_tunnel_and_app "$used" "$p"
   done
 
   (( used > 0 )) || { echo "No usable proxies after filtering."; exit 1; }
@@ -369,7 +399,7 @@ main() {
   echo
   echo "Started $used clone(s). Logs:"
   echo "  $WORKDIR/app_*.log"
-  echo "  $WORKDIR/tun2socks_*.log"
+  echo "  $WORKDIR/hev-socks5-tunnel_*.log"
   echo "Ctrl+C to stop and cleanup."
   wait
 }
