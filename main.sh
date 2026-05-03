@@ -20,6 +20,7 @@ TRAFF_SCRIPT="$BASE_DIR/direct_traff.sh"
 UR_SCRIPT="$BASE_DIR/direct_urnetwork.sh"
 INSTALL_SCRIPT="$BASE_DIR/install_hev-socks5-tunnel.sh"
 MYST_INSTALL_SCRIPT="$BASE_DIR/install_mysterium_node.sh"
+MYSTERIUM_SCRIPT="$BASE_DIR/direct_mysterium.sh"
 WIPTER_SCRIPT="$BASE_DIR/direct_wipter.sh"
 HONEYGAIN_SCRIPT="$BASE_DIR/direct_honeygain.sh"
 HONEYGAIN_ACCOUNTS_FILE="$BASE_DIR/honeygain_password.txt"
@@ -29,8 +30,8 @@ EXITING=0
 TRAFF_TOKEN=""
 PS_TOKEN=""
 CASTAR_KEY=""
-WIPTER_EMAIL=""
-WIPTER_PASSWORD=""
+WIPTER_EMAIL="${WIPTER_EMAIL:-${EMAIL:-}}"
+WIPTER_PASSWORD="${WIPTER_PASSWORD:-${PASSWORD:-}}"
 HONEYGAIN_ACCOUNTS=()
 
 # maps ns name -> numeric index used for subnet allocation
@@ -155,9 +156,18 @@ ask_tokens() {
   read -rp "Enter PacketStream CID token (or leave blank): " PS_TOKEN
   read -rp "Enter Castar Key (or leave blank): " CASTAR_KEY
   echo "------ Wipter Credentials ------"
-  read -rp "Enter Wipter Email (or leave blank): " WIPTER_EMAIL
-  read -rsp "Enter Wipter Password (hidden, leave blank to skip): " WIPTER_PASSWORD
-  echo
+  if [[ -z "${WIPTER_EMAIL:-}" ]]; then
+    read -rp "Enter Wipter Email (or leave blank): " WIPTER_EMAIL
+  else
+    echo "Using Wipter Email from environment."
+  fi
+  if [[ -z "${WIPTER_PASSWORD:-}" ]]; then
+    read -rsp "Enter Wipter Password (hidden, leave blank to skip): " WIPTER_PASSWORD
+    echo
+  else
+    echo "Using Wipter Password from environment."
+  fi
+  export WIPTER_EMAIL WIPTER_PASSWORD EMAIL="$WIPTER_EMAIL" PASSWORD="$WIPTER_PASSWORD"
   echo "================================="
 }
 
@@ -170,6 +180,37 @@ install_earnapp() {
   wget -qO- https://brightdata.com/static/earnapp/install.sh > /tmp/earnapp.sh && sudo bash /tmp/earnapp.sh
 }
 
+install_wipter() {
+  echo "Installing Wipter dependencies and Wipter app..."
+  sudo apt-get update
+  sudo apt-get install -y \
+    xvfb \
+    dbus \
+    dbus-x11 \
+    dbus-user-session \
+    gnome-keyring \
+    libsecret-tools \
+    libsecret-1-0 \
+    libgtk-3-0 \
+    libnss3 \
+    libxss1 \
+    libatk-bridge2.0-0 \
+    libdrm2 \
+    libgbm1 \
+    libxkbcommon0 \
+    xdg-utils \
+    fonts-liberation
+
+  sudo apt-get install -y libasound2 || sudo apt-get install -y libasound2t64
+
+  (
+    cd /tmp
+    wget -O wipter-app-amd64.deb https://provider-assets.wipter.com/latest/linux/x64/wipter-app-amd64.deb
+    sudo apt install -y ./wipter-app-amd64.deb
+  )
+
+  echo "Wipter install complete."
+}
 load_honeygain_accounts() {
   HONEYGAIN_ACCOUNTS=()
   if [[ -f "$HONEYGAIN_ACCOUNTS_FILE" ]]; then
@@ -355,11 +396,16 @@ run_wipter() {
   fi
   create_netns_with_veth "wipterns" "wipter" "${NS_INDEX[wipterns]}"
   echo "Starting Wipter..."
-  sudo BASE_NS=wipterns VETH_PREFIX=wipter WORKDIR=/tmp/wipter_multi WIPTER_EMAIL="$WIPTER_EMAIL" WIPTER_PASSWORD="$WIPTER_PASSWORD" \
-    bash "$WIPTER_SCRIPT" proxies.txt &
+  sudo BASE_NS=wipterns \
+       VETH_PREFIX=wipter \
+       WORKDIR=/tmp/wipter_multi \
+       WIPTER_EMAIL="$WIPTER_EMAIL" \
+       WIPTER_PASSWORD="$WIPTER_PASSWORD" \
+       EMAIL="$WIPTER_EMAIL" \
+       PASSWORD="$WIPTER_PASSWORD" \
+       bash "$WIPTER_SCRIPT" proxies.txt &
   PIDS+=($!)
 }
-
 run_honeygain() {
   if [[ ! -x "$HONEYGAIN_SCRIPT" ]]; then
     echo "direct_honeygain.sh not found or not executable at $HONEYGAIN_SCRIPT"
@@ -429,6 +475,7 @@ menu() {
   echo "7) Install EarnApp Binary"
   echo "8) Install Dependencies"
   echo "9) Run ALL (Safe Mode)"
+  echo "V) Install Wipter Binary"
   echo "A) Clone & Run custom repo"
   echo "H) Run Honeygain"
   echo "W) Run Wipter"
@@ -453,6 +500,7 @@ while true; do
     6) sudo bash "$INSTALL_SCRIPT" ; wait ;;
     7) install_earnapp ; wait ;;
     8) install_dependencies ; wait ;;
+    V|v) install_wipter ; wait ;;
     9)
       run_earnapp
       run_traff

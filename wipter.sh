@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Accept both the standalone names used by this script and the WIPTER_* names
+# used by main.sh/direct_wipter.sh.
+EMAIL="${EMAIL:-${WIPTER_EMAIL:-}}"
+PASSWORD="${PASSWORD:-${WIPTER_PASSWORD:-}}"
+
 if [ -z "${EMAIL:-}" ]; then
   read -rp "Wipter email: " EMAIL
 fi
@@ -12,15 +17,21 @@ fi
 
 export EMAIL
 export PASSWORD
+export WIPTER_EMAIL="$EMAIL"
+export WIPTER_PASSWORD="$PASSWORD"
 
 WIPTER_LAUNCH_PID=""
 HEADLESS="${HEADLESS:-1}"        # 1=headless via Xvfb, 0=normal GUI, auto=headless only when DISPLAY is missing
 WIPTER_LOG="${WIPTER_LOG:-/tmp/wipter-seed-launch.log}"
 FINAL_WIPTER_LOG="${FINAL_WIPTER_LOG:-/tmp/wipter-run.log}"
+WIPTER_DEVTOOLS_PORT="${WIPTER_DEVTOOLS_PORT:-9222}"
+WIPTER_USER_DATA_DIR="${WIPTER_USER_DATA_DIR:-}"
 RUN_AFTER_SEED="${RUN_AFTER_SEED:-1}"  # 0=seed/sign-in only, then exit; 1=seed, then start Wipter in the same DBus/keyring session
 KEYRING_LOG="${KEYRING_LOG:-/tmp/wipter-seed-keyring.log}"
 SKIP_KEYTAR="${SKIP_KEYTAR:-0}"  # 1=do not write Linux Secret Service/keytar tokens; localStorage is still seeded
 KEYRING_PASSWORD="${KEYRING_PASSWORD:-}"  # default blank keyring password for non-interactive headless use
+WIPTER_AFTER_SEED_HOOK="${WIPTER_AFTER_SEED_HOOK:-}"  # optional script run after seeding, before final Wipter launch
+WIPTER_LOCALSTORAGE_SEED="${WIPTER_LOCALSTORAGE_SEED:-1}"  # 1=launch Electron and inject localStorage via DevTools; 0=keytar-only diagnostic fallback
 
 # Wipter/keytar on Linux talks to org.freedesktop.secrets over DBus.
 # Some headless environments set DBUS_SESSION_BUS_ADDRESS=disabled:, which makes
@@ -131,28 +142,36 @@ EOF
 }
 
 cleanup_wipter() {
-  # Give Electron a moment to flush Chromium storage, then close it.
+  # Give Electron a moment to flush Chromium storage, then close only the
+  # temporary seeding process that this script launched. Do not pkill all
+  # wipter-app processes, because direct_wipter.sh may be running many isolated
+  # instances at the same time.
   sleep 1
-  pkill -f 'wipter-app.*remote-debugging-port=9222' >/dev/null 2>&1 || true
-  pkill -f wipter-app >/dev/null 2>&1 || true
-
-  # If we launched through xvfb-run, killing the wrapper helps Xvfb clean itself up.
   if [ -n "${WIPTER_LAUNCH_PID:-}" ]; then
+    pkill -TERM -P "$WIPTER_LAUNCH_PID" >/dev/null 2>&1 || true
     kill "$WIPTER_LAUNCH_PID" >/dev/null 2>&1 || true
   fi
 }
 
 trap cleanup_wipter EXIT
 
-echo "Closing any existing Wipter instances..."
-pkill -f wipter-app >/dev/null 2>&1 || true
+if [ "${WIPTER_LOCALSTORAGE_SEED:-0}" = "1" ]; then
+  echo "Preparing Wipter seeding instance on DevTools port $WIPTER_DEVTOOLS_PORT..."
+  echo "Note: Wipter/Electron may ignore custom DevTools ports; direct_wipter.sh now uses fixed 9222 per namespace."
+else
+  echo "Preparing Wipter keytar-only seed; DevTools/localStorage injection disabled."
+fi
 
 WIPTER_ARGS=(
-  --remote-debugging-port=9222
+  --remote-debugging-port="$WIPTER_DEVTOOLS_PORT"
   --disable-gpu
   --disable-dev-shm-usage
   --no-sandbox
 )
+if [ -n "${WIPTER_USER_DATA_DIR:-}" ]; then
+  mkdir -p "$WIPTER_USER_DATA_DIR"
+  WIPTER_ARGS+=(--user-data-dir="$WIPTER_USER_DATA_DIR")
+fi
 
 start_wipter_for_seeding() {
   unset ELECTRON_RUN_AS_NODE
@@ -182,10 +201,14 @@ EOF
 }
 
 start_secret_service_for_keytar
-start_wipter_for_seeding
 
-# Give Electron a moment to start before the Node seeding code starts polling.
-sleep 1
+if [ "${WIPTER_LOCALSTORAGE_SEED:-0}" = "1" ]; then
+  start_wipter_for_seeding
+  # Give Electron a moment to start before the Node seeding code starts polling.
+  sleep 1
+else
+  echo "Skipping temporary Electron launch for seeding."
+fi
 
 # Node mode does not need a GUI. Clearing DISPLAY/WAYLAND_DISPLAY prevents
 # libsecret/keytar from opening a keyring dialog. Do NOT clear
@@ -209,6 +232,8 @@ const KEYTAR_REFRESH_SERVICE = "com.wipter.auth.refresh.token.production";
 const email = process.env.EMAIL;
 const password = process.env.PASSWORD;
 const skipKeytar = process.env.SKIP_KEYTAR === "1";
+const devtoolsPort = process.env.WIPTER_DEVTOOLS_PORT || "9222";
+const localStorageSeed = process.env.WIPTER_LOCALSTORAGE_SEED === "1";
 
 function uniqueNonEmpty(values) {
   return Array.from(new Set(values.filter(v => typeof v === "string" && v.length > 0)));
@@ -458,20 +483,20 @@ function httpJson(url) {
 async function waitForDevtools() {
   for (let i = 0; i < 120; i++) {
     try {
-      const pages = await httpJson("http://127.0.0.1:9222/json/list");
+      const pages = await httpJson(`http://127.0.0.1:${devtoolsPort}/json/list`);
       const page = pages.find(p => p.type === "page" && p.webSocketDebuggerUrl) || pages.find(p => p.webSocketDebuggerUrl);
       if (page?.webSocketDebuggerUrl) return page.webSocketDebuggerUrl;
     } catch {}
 
     try {
-      const version = await httpJson("http://127.0.0.1:9222/json/version");
+      const version = await httpJson(`http://127.0.0.1:${devtoolsPort}/json/version`);
       if (version?.webSocketDebuggerUrl) return version.webSocketDebuggerUrl;
     } catch {}
 
     await new Promise(resolve => setTimeout(resolve, 250));
   }
 
-  throw new Error("Could not connect to Wipter on DevTools port 9222. Check /tmp/wipter-seed-launch.log");
+  throw new Error(`Could not connect to Wipter on DevTools port ${devtoolsPort}. Check ${process.env.WIPTER_LOG || "/tmp/wipter-seed-launch.log"}`);
 }
 
 function encodeWsFrame(text) {
@@ -673,7 +698,7 @@ async function seedElectronLocalStorage(tokens) {
     }),
   };
 
-  console.log("Waiting for Wipter DevTools on port 9222...");
+  console.log(`Waiting for Wipter DevTools on port ${devtoolsPort}...`);
   const wsUrl = await waitForDevtools();
 
   const expression = `
@@ -751,11 +776,16 @@ async function main() {
     console.log(`OS keychain token verified for account ${primaryAccount}. Also wrote aliases: ${keychainAccounts.join(", ")}`);
   }
 
-  console.log("Seeding Electron localStorage...");
-  await seedElectronLocalStorage(tokens);
+  if (localStorageSeed) {
+    console.log("Seeding Electron localStorage via DevTools...");
+    await seedElectronLocalStorage(tokens);
+    console.log("Wipter Electron localStorage seeded.");
+  } else {
+    console.log("Skipping Electron localStorage seeding because WIPTER_LOCALSTORAGE_SEED=0.");
+    console.log("Using OS keychain/keytar seed only; this is diagnostic fallback and Wipter may still require localStorage.");
+  }
 
   console.log("Wipter access token saved.");
-  console.log("Wipter Electron localStorage seeded.");
   console.log("Wipter seed phase complete.");
 }
 
@@ -780,6 +810,12 @@ NODE
 cleanup_wipter
 trap - EXIT
 
+if [ -n "${WIPTER_AFTER_SEED_HOOK:-}" ]; then
+  echo "Running Wipter after-seed hook before final launch: $WIPTER_AFTER_SEED_HOOK"
+  bash "$WIPTER_AFTER_SEED_HOOK"
+fi
+
+
 if [ "${RUN_AFTER_SEED:-0}" = "1" ]; then
   # Keep this process alive so the dbus-run-session bus and gnome-keyring daemon
   # stay available to Wipter at runtime. This is the important difference from
@@ -789,18 +825,22 @@ if [ "${RUN_AFTER_SEED:-0}" = "1" ]; then
   fi
 
   echo "Launching Wipter in the SAME DBus/keyring session. Log: $FINAL_WIPTER_LOG"
+  echo "Wipter app runtime log location: $FINAL_WIPTER_LOG"
+
+  WIPTER_FINAL_ARGS=(--disable-gpu --disable-dev-shm-usage --no-sandbox)
+  if [ -n "${WIPTER_USER_DATA_DIR:-}" ]; then
+    mkdir -p "$WIPTER_USER_DATA_DIR"
+    WIPTER_FINAL_ARGS+=(--user-data-dir="$WIPTER_USER_DATA_DIR")
+  fi
 
   if need_xvfb; then
     if ! command -v xvfb-run >/dev/null 2>&1; then
       echo "Missing xvfb-run. Install: sudo apt-get install -y xvfb" >&2
       exit 1
     fi
-    exec xvfb-run -a -s "-screen 0 1280x800x24 -nolisten tcp" \
-      wipter-app --disable-gpu --disable-dev-shm-usage --no-sandbox "$@" \
-      >"$FINAL_WIPTER_LOG" 2>&1
+    exec xvfb-run -a -s "-screen 0 1280x800x24 -nolisten tcp"       wipter-app "${WIPTER_FINAL_ARGS[@]}" "$@"       >"$FINAL_WIPTER_LOG" 2>&1
   else
-    exec wipter-app --disable-gpu --disable-dev-shm-usage --no-sandbox "$@" \
-      >"$FINAL_WIPTER_LOG" 2>&1
+    exec wipter-app "${WIPTER_FINAL_ARGS[@]}" "$@"       >"$FINAL_WIPTER_LOG" 2>&1
   fi
 else
   echo "Seed complete. RUN_AFTER_SEED=0, so Wipter was not started."
