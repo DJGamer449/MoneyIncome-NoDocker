@@ -21,12 +21,7 @@ namespaces with proxy routing.
 
 -   Run **EarnApp, TraffMonetizer, PacketStream, UrNetwork, CastarSDK, Honeygain** at the same time
 -   Each service runs in its own isolated netns
--   Automatic proxy routing via hev-socks5-tunnel
--   Mysterium node connect UI is auto-forwarded from namespace-local `127.0.0.1:4449` to host `127.0.0.1:4450`, `4451`, `4452`, ...
--   Persistent Mysterium data directories are auto-created under `myst/myst-1`, `myst/myst-2`, ...
--   Each Mysterium instance now gets its own HOME/XDG/script directories so identities stay isolated across simultaneous logins
--   Mysterium launch now uses a private mount namespace per instance and bind-mounts isolated app/config/cache paths to prevent cross-instance session/keyring bleed
--   Mysterium runner now probes UDP after tunnel setup and automatically falls back to direct UDP inside the namespace if the SOCKS proxy cannot relay UDP
+-   Automatic proxy routing via tun2socks
 -   No IP collision (separate namespace prefixes)
 -   Live output (no hidden logging)
 -   Clean Ctrl+C shutdown
@@ -55,9 +50,7 @@ namespaces with proxy routing.
 mâin.sh\
 direct_earnapp.sh\
 direct_traff.sh\
-direct_mysterium.sh\
-install_mysterium_node.sh\
-install_hev-socks5-tunnel.sh\
+install_tun2socks.sh\
 proxies.txt
 
 ------------------------------------------------------------------------
@@ -87,9 +80,7 @@ sudo ./main.sh
 
 Select option:
 
-- `6` to install hev-socks5-tunnel
-- `I` to install Mysterium Node
-- `M` to run Mysterium Node instances through the proxies in `proxies.txt`
+4)  Install tun2socks
 
 ------------------------------------------------------------------------
 
@@ -119,7 +110,7 @@ Each service:
 -   Gets its own Linux network namespace
 -   Gets its own veth pair
 -   Gets its own TUN device
--   Routes traffic through hev-socks5-tunnel
+-   Routes traffic through tun2socks
 -   Uses independent IP ranges
 
 Namespace prefixes:
