@@ -176,6 +176,14 @@ install_earnapp() {
   wget -qO- https://brightdata.com/static/earnapp/install.sh > /tmp/earnapp.sh && sudo bash /tmp/earnapp.sh
 }
 
+install_wipter() {
+  sudo apt-get update
+  sudo apt-get install -y     xvfb     dbus     dbus-x11     dbus-user-session     gnome-keyring     libsecret-tools     libsecret-1-0     libgtk-3-0     libnss3     libxss1     libatk-bridge2.0-0     libdrm2     libgbm1     libxkbcommon0     xdg-utils     fonts-liberation
+  sudo apt-get install -y libasound2 || sudo apt-get install -y libasound2t64
+  wget https://provider-assets.wipter.com/latest/linux/x64/wipter-app-amd64.deb
+  sudo apt install -y ./wipter-app-amd64.deb
+}
+
 load_honeygain_accounts() {
   HONEYGAIN_ACCOUNTS=()
   [[ -f "$HONEYGAIN_ACCOUNTS_FILE" ]] || return 0
@@ -409,6 +417,7 @@ menu() {
   echo "6) Install hev-socks5-tunnel"
   echo "7) Install EarnApp Binary"
   echo "8) Install Dependencies"
+  echo "10) Install Wipter"
   echo "9) Run ALL (Safe Mode)"
   echo "A) Clone & Run custom repo"
   echo "H) Run Honeygain"
@@ -434,6 +443,7 @@ while true; do
     6) sudo bash "$INSTALL_SCRIPT" ; wait ;;
     7) install_earnapp ; wait ;;
     8) install_dependencies ; wait ;;
+    10) install_wipter ; wait ;;
     9)
       run_earnapp
       run_traff
