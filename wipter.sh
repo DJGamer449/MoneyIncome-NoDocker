@@ -219,7 +219,87 @@ const http = require("http");
 const net = require("net");
 const crypto = require("crypto");
 const os = require("os");
-const keytar = require("/opt/Wipter/resources/app.asar.unpacked/node_modules/keytar");
+const fs = require("fs");
+const path = require("path");
+const { execFileSync } = require("child_process");
+
+function tryRequire(modulePath) {
+  try {
+    return require(modulePath);
+  } catch (err) {
+    if (process.env.WIPTER_DEBUG_KEYTAR === "1") {
+      console.error(`keytar candidate failed: ${modulePath}: ${err.message}`);
+    }
+    return null;
+  }
+}
+
+function walkForKeytarCandidates(root, maxDepth = 7) {
+  const out = [];
+  const seen = new Set();
+
+  function walk(dir, depth) {
+    if (depth > maxDepth || seen.has(dir)) return;
+    seen.add(dir);
+
+    let entries = [];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === "keytar") out.push(full);
+        // Common native build output; requiring the .node file directly also works.
+        if (entry.name === "Release" && full.includes(`${path.sep}keytar${path.sep}build${path.sep}`)) {
+          const nodeFile = path.join(full, "keytar.node");
+          if (fs.existsSync(nodeFile)) out.push(nodeFile);
+        }
+        walk(full, depth + 1);
+      } else if (entry.isFile() && entry.name === "keytar.node") {
+        out.push(full);
+      }
+    }
+  }
+
+  walk(root, 0);
+  return out;
+}
+
+function loadKeytar() {
+  const candidates = [];
+  if (process.env.KEYTAR_MODULE_PATH) candidates.push(process.env.KEYTAR_MODULE_PATH);
+
+  candidates.push(
+    "/opt/Wipter/resources/app.asar.unpacked/node_modules/keytar",
+    "/opt/Wipter/resources/app.asar/node_modules/keytar",
+    "/opt/Wipter/resources/app/node_modules/keytar",
+    path.join(process.cwd(), "node_modules", "keytar")
+  );
+
+  for (const root of ["/opt/Wipter/resources", "/opt/Wipter"]) {
+    if (fs.existsSync(root)) {
+      candidates.push(...walkForKeytarCandidates(root));
+    }
+  }
+
+  for (const candidate of Array.from(new Set(candidates))) {
+    const mod = tryRequire(candidate);
+    if (mod && typeof mod.setPassword === "function" && typeof mod.getPassword === "function") {
+      console.log(`Loaded keytar module from ${candidate}`);
+      return mod;
+    }
+  }
+
+  console.log("keytar module was not found in this Wipter build; continuing with Electron localStorage seeding only.");
+  console.log("Set WIPTER_DEBUG_KEYTAR=1 to print attempted keytar paths.");
+  return null;
+}
+
+const keytar = loadKeytar();
 
 const REGION = "us-west-2";
 const USER_POOL_ID = "us-west-2_ErAI4NHT1";
@@ -237,6 +317,89 @@ const localStorageSeed = process.env.WIPTER_LOCALSTORAGE_SEED === "1";
 
 function uniqueNonEmpty(values) {
   return Array.from(new Set(values.filter(v => typeof v === "string" && v.length > 0)));
+}
+
+function hasCommand(name) {
+  try {
+    execFileSync("bash", ["-lc", `command -v ${name}`], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function secretToolStorePassword(service, account, password) {
+  if (!password || !hasCommand("secret-tool")) return false;
+
+  const attempts = [
+    ["store", "--label", `${service}/${account}`, "service", service, "account", account],
+    ["store", "--label", `${service}/${account}`, "xdg:schema", "org.freedesktop.Secret.Generic", "service", service, "account", account],
+    ["store", "--label", `${service}/${account}`, "application", service, "account", account],
+  ];
+
+  for (const args of attempts) {
+    try {
+      execFileSync("secret-tool", args, {
+        input: password,
+        env: { ...process.env, DISPLAY: "", WAYLAND_DISPLAY: "" },
+        stdio: ["pipe", "ignore", "pipe"],
+      });
+      return true;
+    } catch (err) {
+      if (process.env.WIPTER_DEBUG_KEYTAR === "1") {
+        console.error(`secret-tool store failed for service=${service} account=${account}: ${err.message}`);
+      }
+    }
+  }
+
+  return false;
+}
+
+function secretToolLookupPassword(service, account) {
+  if (!hasCommand("secret-tool")) return "";
+  const attempts = [
+    ["lookup", "service", service, "account", account],
+    ["lookup", "xdg:schema", "org.freedesktop.Secret.Generic", "service", service, "account", account],
+    ["lookup", "application", service, "account", account],
+  ];
+  for (const args of attempts) {
+    try {
+      return execFileSync("secret-tool", args, {
+        env: { ...process.env, DISPLAY: "", WAYLAND_DISPLAY: "" },
+        stdio: ["ignore", "pipe", "pipe"],
+        encoding: "utf8",
+      }).trim();
+    } catch {}
+  }
+  return "";
+}
+
+async function saveTokensToSecretServiceWithSecretTool(tokens, accounts) {
+  if (!hasCommand("secret-tool")) {
+    console.log("secret-tool is not available; cannot use Secret Service fallback.");
+    return false;
+  }
+
+  let wrote = 0;
+  for (const account of accounts) {
+    if (secretToolStorePassword(KEYTAR_ACCESS_SERVICE, account, tokens.AccessToken)) wrote++;
+    if (tokens.RefreshToken && secretToolStorePassword(KEYTAR_REFRESH_SERVICE, account, tokens.RefreshToken)) wrote++;
+  }
+
+  const primaryAccount = os.userInfo().username;
+  const readBack = secretToolLookupPassword(KEYTAR_ACCESS_SERVICE, primaryAccount);
+  if (readBack) {
+    console.log(`Secret Service fallback token verified for account ${primaryAccount}. Wrote ${wrote} secret item(s).`);
+    return true;
+  }
+
+  if (wrote > 0) {
+    console.log(`Secret Service fallback wrote ${wrote} secret item(s), but lookup verification for ${primaryAccount} did not return a value.`);
+    return true;
+  }
+
+  console.log("Secret Service fallback did not write any token items.");
+  return false;
 }
 
 
@@ -456,6 +619,7 @@ async function srpLogin() {
     };
   }
 
+  response.AuthenticationResult.__srpUsername = userIdForSrp;
   return response.AuthenticationResult;
 }
 
@@ -661,16 +825,67 @@ function cdpEvaluate(wsUrl, expression) {
   });
 }
 
+async function getDevtoolsTargets() {
+  const targets = [];
+
+  try {
+    const pages = await httpJson(`http://127.0.0.1:${devtoolsPort}/json/list`);
+    if (Array.isArray(pages)) {
+      for (const page of pages) {
+        if (page?.webSocketDebuggerUrl) targets.push(page);
+      }
+    }
+  } catch {}
+
+  // Fallback for Electron builds that expose only /json/version early.
+  try {
+    const version = await httpJson(`http://127.0.0.1:${devtoolsPort}/json/version`);
+    if (version?.webSocketDebuggerUrl) {
+      targets.push({
+        type: "browser",
+        title: "browser-version-target",
+        url: version.webSocketDebuggerUrl,
+        webSocketDebuggerUrl: version.webSocketDebuggerUrl,
+      });
+    }
+  } catch {}
+
+  return Array.from(new Map(targets.map(t => [t.webSocketDebuggerUrl, t])).values());
+}
+
+async function waitForDevtoolsTargets() {
+  for (let i = 0; i < 160; i++) {
+    const targets = await getDevtoolsTargets();
+    const pageTargets = targets.filter(t => t.type === "page" || t.url || t.title);
+    if (pageTargets.length > 0) return pageTargets;
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
+
+  throw new Error(`Could not connect to Wipter on DevTools port ${devtoolsPort}. Check ${process.env.WIPTER_LOG || "/tmp/wipter-seed-launch.log"}`);
+}
+
 async function seedElectronLocalStorage(tokens) {
-  const username = email.toLowerCase();
+  const emailLower = email.toLowerCase();
   const accessPayload = decodeJwtPayload(tokens.AccessToken);
   const idPayload = tokens.IdToken ? decodeJwtPayload(tokens.IdToken) : {};
-  const cognitoUsername = idPayload["cognito:username"] || accessPayload.username || username;
-  const userSub = idPayload.sub || accessPayload.sub;
+  const cognitoUsername = idPayload["cognito:username"] || accessPayload.username || tokens.__srpUsername || emailLower;
+  const userSub = idPayload.sub || accessPayload.sub || "";
   const iat = accessPayload.iat ? accessPayload.iat * 1000 : Date.now();
   const clockDrift = String(iat - Date.now());
 
-  const base = `CognitoIdentityServiceProvider.${CLIENT_ID}.${username}`;
+  // Amplify/Cognito has changed which username it uses across versions. Seed
+  // every plausible alias so Wipter can find the token regardless of whether it
+  // asks for email, USER_ID_FOR_SRP, cognito:username, or sub.
+  const userAliases = uniqueNonEmpty([
+    email,
+    emailLower,
+    tokens.__srpUsername,
+    accessPayload.username,
+    idPayload["cognito:username"],
+    cognitoUsername,
+    userSub,
+  ]);
+
   const signInDetails = {
     loginId: email,
     authFlowType: "USER_SRP_AUTH",
@@ -679,59 +894,116 @@ async function seedElectronLocalStorage(tokens) {
   const userProfile = {
     username: cognitoUsername,
     userId: userSub,
+    sub: userSub,
+    email,
     signInDetails,
   };
 
-  const localStorageItems = {
-    [`CognitoIdentityServiceProvider.${CLIENT_ID}.LastAuthUser`]: username,
-    [`${base}.accessToken`]: tokens.AccessToken,
-    [`${base}.idToken`]: tokens.IdToken || "",
-    [`${base}.refreshToken`]: tokens.RefreshToken || "",
-    [`${base}.clockDrift`]: clockDrift,
-    [`${base}.signInDetails`]: JSON.stringify(signInDetails),
+  const localStorageItems = {};
+  localStorageItems[`CognitoIdentityServiceProvider.${CLIENT_ID}.LastAuthUser`] = cognitoUsername;
 
-    // Wipter's renderer also keeps its own user object under this key.
-    [KEYTAR_ACCESS_SERVICE]: JSON.stringify({
-      access_token: tokens.AccessToken,
-      token_type: "Bearer",
-      profile: userProfile,
-    }),
-  };
+  for (const alias of userAliases) {
+    const base = `CognitoIdentityServiceProvider.${CLIENT_ID}.${alias}`;
+    localStorageItems[`${base}.accessToken`] = tokens.AccessToken;
+    localStorageItems[`${base}.idToken`] = tokens.IdToken || "";
+    localStorageItems[`${base}.refreshToken`] = tokens.RefreshToken || "";
+    localStorageItems[`${base}.clockDrift`] = clockDrift;
+    localStorageItems[`${base}.signInDetails`] = JSON.stringify(signInDetails);
+  }
 
+  // Wipter-specific auth caches observed across builds. Keep both snake_case and
+  // Amplify-style token names because different renderer builds inspect different shapes.
+  localStorageItems[KEYTAR_ACCESS_SERVICE] = JSON.stringify({
+    access_token: tokens.AccessToken,
+    id_token: tokens.IdToken || "",
+    refresh_token: tokens.RefreshToken || "",
+    token_type: "Bearer",
+    AccessToken: tokens.AccessToken,
+    IdToken: tokens.IdToken || "",
+    RefreshToken: tokens.RefreshToken || "",
+    profile: userProfile,
+  });
+  localStorageItems[KEYTAR_REFRESH_SERVICE] = tokens.RefreshToken || "";
+  localStorageItems["wipter.auth"] = localStorageItems[KEYTAR_ACCESS_SERVICE];
+  localStorageItems["wipter:user"] = JSON.stringify(userProfile);
+
+  console.log(`Prepared ${Object.keys(localStorageItems).length} auth keys for LastAuthUser=${cognitoUsername}; aliases=${userAliases.join(",")}`);
   console.log(`Waiting for Wipter DevTools on port ${devtoolsPort}...`);
-  const wsUrl = await waitForDevtools();
+  const targets = await waitForDevtoolsTargets();
+  console.log(`DevTools targets found: ${targets.map(t => `${t.type || "unknown"}:${t.title || ""}:${t.url || ""}`).join(" | ")}`);
 
   const expression = `
     new Promise((resolve) => {
       const items = ${JSON.stringify(localStorageItems)};
-      for (const [key, value] of Object.entries(items)) {
-        if (value !== undefined && value !== null) {
-          localStorage.setItem(key, value);
-        }
-      }
+      const expectedLastAuthUser = ${JSON.stringify(cognitoUsername)};
+      const clientId = ${JSON.stringify(CLIENT_ID)};
+      const serviceKey = ${JSON.stringify(KEYTAR_ACCESS_SERVICE)};
 
-      // Some Electron/Amplify builds consult sessionStorage during the current run.
-      // Mirror the same values there too; localStorage is what persists.
-      for (const [key, value] of Object.entries(items)) {
-        if (value !== undefined && value !== null) {
-          sessionStorage.setItem(key, value);
+      try {
+        // Remove stale auth for this client/service first, then write fresh keys.
+        for (const key of Object.keys(localStorage)) {
+          if (key.startsWith('CognitoIdentityServiceProvider.' + clientId + '.') ||
+              key === serviceKey || key.startsWith('com.wipter.auth') || key.startsWith('wipter')) {
+            localStorage.removeItem(key);
+          }
         }
-      }
 
-      setTimeout(() => {
+        for (const [key, value] of Object.entries(items)) {
+          if (value !== undefined && value !== null) {
+            localStorage.setItem(key, String(value));
+            sessionStorage.setItem(key, String(value));
+          }
+        }
+
+        // Touch localStorage repeatedly; Chromium usually flushes shortly after mutation.
+        localStorage.setItem('wipter.seededAt', String(Date.now()));
+        sessionStorage.setItem('wipter.seededAt', String(Date.now()));
+
+        const verifyKeys = Object.keys(items).filter(k => localStorage.getItem(k) !== null);
         const result = {
-          ok: true,
-          keysWritten: Object.keys(items).length,
-          lastAuthUser: localStorage.getItem(${JSON.stringify(`CognitoIdentityServiceProvider.${CLIENT_ID}.LastAuthUser`)})
+          ok: localStorage.getItem('CognitoIdentityServiceProvider.' + clientId + '.LastAuthUser') === expectedLastAuthUser && localStorage.getItem(serviceKey) !== null,
+          href: location.href,
+          origin: location.origin,
+          keysExpected: Object.keys(items).length,
+          keysWritten: verifyKeys.length,
+          lastAuthUser: localStorage.getItem('CognitoIdentityServiceProvider.' + clientId + '.LastAuthUser'),
+          hasServiceKey: localStorage.getItem(serviceKey) !== null,
+          sampleKeys: Object.keys(localStorage).filter(k => k.includes(clientId) || k.includes('wipter') || k.includes('com.wipter')).slice(0, 40),
         };
 
-        location.reload();
-        resolve(result);
-      }, 500);
+        setTimeout(() => resolve(result), 1500);
+      } catch (err) {
+        resolve({ ok: false, error: String(err), href: location.href, origin: location.origin });
+      }
     })
   `;
 
-  await cdpEvaluate(wsUrl, expression);
+  let good = false;
+  let sawAnyResult = false;
+
+  for (const target of targets) {
+    if (!target.webSocketDebuggerUrl) continue;
+    try {
+      const evalResult = await cdpEvaluate(target.webSocketDebuggerUrl, expression);
+      const value = evalResult?.result?.value ?? evalResult?.result ?? evalResult;
+      sawAnyResult = true;
+      console.log(`LocalStorage seed target ${target.type || "unknown"}:${target.title || ""}:${target.url || ""} => ${JSON.stringify(value)}`);
+      if (value && value.ok) good = true;
+    } catch (err) {
+      console.log(`LocalStorage seed target failed ${target.type || "unknown"}:${target.title || ""}:${target.url || ""}: ${err.message || err}`);
+    }
+  }
+
+  if (!sawAnyResult) {
+    throw new Error("No DevTools targets accepted localStorage seed injection.");
+  }
+  if (!good) {
+    throw new Error("Wipter localStorage seed verification failed; refusing to launch final app without auth.");
+  }
+
+  const flushMs = Number(process.env.WIPTER_SEED_FLUSH_MS || "5000");
+  console.log(`Verified Wipter auth keys in Electron localStorage. Waiting ${flushMs}ms for Chromium profile flush...`);
+  await new Promise(resolve => setTimeout(resolve, flushMs));
 }
 
 async function main() {
@@ -739,41 +1011,60 @@ async function main() {
   const tokens = await srpLogin();
   console.log("Cognito login succeeded.");
 
+  const keychainAccounts = uniqueNonEmpty([
+    os.userInfo().username,
+    process.env.USER,
+    process.env.LOGNAME,
+    email,
+    email.toLowerCase(),
+  ]);
+
   if (skipKeytar) {
     console.log("Skipping OS keychain/keytar because SKIP_KEYTAR=1.");
   } else {
-    console.log("Saving token to OS keychain...");
+    let keytarOk = false;
 
-    const keychainAccounts = uniqueNonEmpty([
-      os.userInfo().username,
-      process.env.USER,
-      process.env.LOGNAME,
-      email,
-      email.toLowerCase(),
-    ]);
+    if (!keytar) {
+      console.log("keytar module is not available in this Wipter install.");
+      console.log("Writing tokens with secret-tool fallback so Wipter/keytar can still read Secret Service items.");
+    } else {
+      console.log("Saving token to OS keychain with keytar...");
+      try {
+        for (const account of keychainAccounts) {
+          await keytar.setPassword(
+            KEYTAR_ACCESS_SERVICE,
+            account,
+            tokens.AccessToken
+          );
 
-    for (const account of keychainAccounts) {
-      await keytar.setPassword(
-        KEYTAR_ACCESS_SERVICE,
-        account,
-        tokens.AccessToken
-      );
+          if (tokens.RefreshToken) {
+            await keytar.setPassword(
+              KEYTAR_REFRESH_SERVICE,
+              account,
+              tokens.RefreshToken
+            );
+          }
+        }
 
-      if (tokens.RefreshToken) {
-        await keytar.setPassword(
-          KEYTAR_REFRESH_SERVICE,
-          account,
-          tokens.RefreshToken
-        );
+        const primaryAccount = os.userInfo().username;
+        const readBack = await keytar.getPassword(KEYTAR_ACCESS_SERVICE, primaryAccount);
+        if (!readBack) {
+          throw new Error(`OS keychain write failed or could not be read back for account ${primaryAccount}`);
+        }
+        keytarOk = true;
+        console.log(`OS keychain token verified for account ${primaryAccount}. Also wrote aliases: ${keychainAccounts.join(", ")}`);
+      } catch (err) {
+        console.log(`keytar write failed, falling back to secret-tool: ${err.message || err}`);
       }
     }
 
-    const primaryAccount = os.userInfo().username;
-    const readBack = await keytar.getPassword(KEYTAR_ACCESS_SERVICE, primaryAccount);
-    if (!readBack) {
-      throw new Error(`OS keychain write failed or could not be read back for account ${primaryAccount}`);
+    // Write with secret-tool as well. This covers Wipter builds where the app can
+    // read Secret Service, but the embedded Node seeding process cannot require
+    // the keytar module from the old hardcoded path.
+    const secretToolOk = await saveTokensToSecretServiceWithSecretTool(tokens, keychainAccounts);
+    if (!keytarOk && !secretToolOk) {
+      console.log("No OS keychain write method succeeded; continuing with Electron localStorage auto-login seed only.");
     }
-    console.log(`OS keychain token verified for account ${primaryAccount}. Also wrote aliases: ${keychainAccounts.join(", ")}`);
   }
 
   if (localStorageSeed) {
@@ -805,6 +1096,11 @@ main().catch(err => {
 });
 NODE
 
+# Give Chromium/Electron extra time to flush the seeded Local Storage LevelDB before the seed process is stopped.
+if [ "${WIPTER_LOCALSTORAGE_SEED:-0}" = "1" ]; then
+  sync || true
+  sleep "${WIPTER_SEED_FLUSH_SECONDS:-3}"
+fi
 
 # Stop the temporary seeding Electron process before launching the real one.
 cleanup_wipter
