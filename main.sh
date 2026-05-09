@@ -202,7 +202,7 @@ install_wipter() {
     libatk-bridge2.0-0 \
     libdrm2 \
     libgbm1 \
-    libxkbcommon0 \
+    libxkbcommon0 libsecret-1-dev \
     xdg-utils \
     fonts-liberation
 
