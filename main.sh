@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 
 # ===============================
-# HARDENED GRAND NETWORK MANAGER (MULTI-APP SAFE)
+# HARDENED GRAND NETWORK MANAGER (MULTI-APP SAFE / tun2socks)
 # Kernel tuning + per-namespace network isolation + clone-and-run helper
 # ===============================
 
 set -euo pipefail
+
+ulimit -n 1048576 2>/dev/null || ulimit -n 65535 2>/dev/null || true
 
 # Fix CRLF if needed
 for f in "$(dirname "$0")"/*.sh; do
@@ -19,6 +21,8 @@ EARNAPP_SCRIPT="$BASE_DIR/direct_earnapp.sh"
 TRAFF_SCRIPT="$BASE_DIR/direct_traff.sh"
 UR_SCRIPT="$BASE_DIR/direct_urnetwork.sh"
 INSTALL_SCRIPT="$BASE_DIR/install_tun2socks.sh"
+MYST_INSTALL_SCRIPT="$BASE_DIR/install_mysterium_node.sh"
+MYSTERIUM_SCRIPT="$BASE_DIR/direct_mysterium.sh"
 WIPTER_SCRIPT="$BASE_DIR/direct_wipter.sh"
 HONEYGAIN_SCRIPT="$BASE_DIR/direct_honeygain.sh"
 HONEYGAIN_ACCOUNTS_FILE="$BASE_DIR/honeygain_password.txt"
@@ -28,8 +32,9 @@ EXITING=0
 TRAFF_TOKEN=""
 PS_TOKEN=""
 CASTAR_KEY=""
-WIPTER_EMAIL=""
-WIPTER_PASSWORD=""
+WIPTER_EMAIL="${WIPTER_EMAIL:-${EMAIL:-}}"
+WIPTER_PASSWORD="${WIPTER_PASSWORD:-${PASSWORD:-}}"
+HONEYGAIN_ACCOUNTS=()
 
 # maps ns name -> numeric index used for subnet allocation
 declare -A NS_INDEX=(
@@ -42,18 +47,12 @@ declare -A NS_INDEX=(
   [honeyns]=7
 )
 
-# store created namespaces for cleanup
 CREATED_NETNS=()
-# store iptables rules we added (subnets) for cleanup
 CREATED_SUBNETS=()
 
-# detect host default interface for NAT
 HOST_IF="$(ip route show default 2>/dev/null | awk '/default/ {print $5; exit}')"
-[ -n "$HOST_IF" ] || HOST_IF="eth0"  # fallback
+[ -n "$HOST_IF" ] || HOST_IF="eth0"
 
-# ===============================
-# KERNEL TUNE (conservative & safer)
-# ===============================
 kernel_tune() {
   echo "Applying conservative kernel tuning for high-scale (safe defaults)..."
 
@@ -75,6 +74,9 @@ kernel_tune() {
   sudo sysctl -w vm.max_map_count=262144 >/dev/null || true
   sudo sysctl -w vm.swappiness=10 >/dev/null || true
   sudo sysctl -w net.ipv4.ip_forward=1 >/dev/null || true
+  sudo sysctl -w fs.inotify.max_user_instances=1048576 >/dev/null 2>&1 || true
+  sudo sysctl -w fs.inotify.max_user_watches=1048576 >/dev/null 2>&1 || true
+  sudo sysctl -w fs.inotify.max_queued_events=1048576 >/dev/null 2>&1 || true
   sudo modprobe tcp_bbr 2>/dev/null || true
   sudo sysctl -w net.core.default_qdisc=fq >/dev/null || true
   sudo sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null || true
@@ -103,7 +105,6 @@ create_netns_with_veth() {
   fi
 
   echo "Creating netns $ns with veth prefix ${veth_prefix} idx ${idx}..."
-
   sudo ip netns add "$ns"
   CREATED_NETNS+=("$ns")
 
@@ -128,7 +129,6 @@ create_netns_with_veth() {
 
   sudo iptables -t nat -A POSTROUTING -s "$subnet" -o "$HOST_IF" -j MASQUERADE
   CREATED_SUBNETS+=("$subnet")
-
   echo "Netns $ns created: host dev $host_if ($host_ip) <-> ns dev $ns_if ($ns_ip)."
 }
 
@@ -150,7 +150,6 @@ cleanup() {
     sudo ip netns delete "$ns" 2>/dev/null || true
     sudo rm -rf /etc/netns/"$ns" 2>/dev/null || true
   done
-
   echo "All services and network namespaces stopped/removed."
   exit 0
 }
@@ -161,16 +160,24 @@ ask_tokens() {
   read -rp "Enter Traff token (or leave blank): " TRAFF_TOKEN
   read -rp "Enter PacketStream CID token (or leave blank): " PS_TOKEN
   read -rp "Enter Castar Key (or leave blank): " CASTAR_KEY
-
   echo "------ Wipter Credentials ------"
-  read -rp "Enter Wipter Email (or leave blank): " WIPTER_EMAIL
-  read -rsp "Enter Wipter Password (hidden, leave blank to skip): " WIPTER_PASSWORD
-  echo
+  if [[ -z "${WIPTER_EMAIL:-}" ]]; then
+    read -rp "Enter Wipter Email (or leave blank): " WIPTER_EMAIL
+  else
+    echo "Using Wipter Email from environment."
+  fi
+  if [[ -z "${WIPTER_PASSWORD:-}" ]]; then
+    read -rsp "Enter Wipter Password (hidden, leave blank to skip): " WIPTER_PASSWORD
+    echo
+  else
+    echo "Using Wipter Password from environment."
+  fi
+  export WIPTER_EMAIL WIPTER_PASSWORD EMAIL="$WIPTER_EMAIL" PASSWORD="$WIPTER_PASSWORD"
   echo "================================="
 }
 
 install_dependencies() {
-  sudo apt update && sudo apt install -y curl wget unzip iproute2 iptables uuid-runtime jq net-tools git
+  sudo apt update && sudo apt install -y curl wget unzip iproute2 iptables uuid-runtime jq net-tools git socat
 }
 
 install_earnapp() {
@@ -178,6 +185,37 @@ install_earnapp() {
   wget -qO- https://brightdata.com/static/earnapp/install.sh > /tmp/earnapp.sh && sudo bash /tmp/earnapp.sh
 }
 
+install_wipter() {
+  echo "Installing Wipter dependencies and Wipter app..."
+  sudo apt-get update
+  sudo apt-get install -y \
+    xvfb \
+    dbus \
+    dbus-x11 \
+    dbus-user-session \
+    gnome-keyring \
+    libsecret-tools \
+    libsecret-1-0 \
+    libgtk-3-0 \
+    libnss3 \
+    libxss1 \
+    libatk-bridge2.0-0 \
+    libdrm2 \
+    libgbm1 \
+    libxkbcommon0 \
+    xdg-utils \
+    fonts-liberation
+
+  sudo apt-get install -y libasound2 || sudo apt-get install -y libasound2t64
+
+  (
+    cd /tmp
+    wget -O wipter-app-amd64.deb https://provider-assets.wipter.com/latest/linux/x64/wipter-app-amd64.deb
+    sudo apt install -y ./wipter-app-amd64.deb
+  )
+
+  echo "Wipter install complete."
+}
 load_honeygain_accounts() {
   HONEYGAIN_ACCOUNTS=()
   if [[ -f "$HONEYGAIN_ACCOUNTS_FILE" ]]; then
@@ -290,11 +328,9 @@ clone_and_run() {
   fi
 
   create_netns_with_veth "$ns_name" "$veth_prefix" "$idx"
-
   echo "Starting $app_name inside namespace $ns_name..."
   sudo ip netns exec "$ns_name" bash -lc "cd '$dest' && nohup $run_cmd >/tmp/${app_name}.log 2>&1 & echo \$!" \
     | { read -r pid; echo "$pid"; PIDS+=("$pid"); } >/dev/null 2>&1 || true
-
   echo "$app_name started (check /tmp/${app_name}.log in namespace context)."
 }
 
@@ -359,12 +395,10 @@ run_wipter() {
     echo "Place direct_wipter.sh in $BASE_DIR and chmod +x it."
     return
   fi
-
   if [[ -z "${WIPTER_EMAIL:-}" || -z "${WIPTER_PASSWORD:-}" ]]; then
     echo "Wipter credentials not set. Please restart and provide them, or set WIPTER_EMAIL/WIPTER_PASSWORD in environment."
     return
   fi
-
   create_netns_with_veth "wipterns" "wipter" "${NS_INDEX[wipterns]}"
   echo "Starting Wipter..."
   sudo BASE_NS=wipterns \
@@ -372,7 +406,44 @@ run_wipter() {
        WORKDIR=/tmp/wipter_multi \
        WIPTER_EMAIL="$WIPTER_EMAIL" \
        WIPTER_PASSWORD="$WIPTER_PASSWORD" \
+       EMAIL="$WIPTER_EMAIL" \
+       PASSWORD="$WIPTER_PASSWORD" \
        bash "$WIPTER_SCRIPT" proxies.txt &
+  PIDS+=($!)
+}
+run_honeygain() {
+  if [[ ! -x "$HONEYGAIN_SCRIPT" ]]; then
+    echo "direct_honeygain.sh not found or not executable at $HONEYGAIN_SCRIPT"
+    return
+  fi
+  if [[ ! -x "$BASE_DIR/app/honeygain_file/honeygain" ]]; then
+    echo "Honeygain binary missing at app/honeygain_file/honeygain"
+    return
+  fi
+
+  setup_honeygain_accounts
+  if ((${#HONEYGAIN_ACCOUNTS[@]} == 0)); then
+    echo "No Honeygain accounts configured."
+    return
+  fi
+
+  local account_blob
+  account_blob=$(printf '%s\n' "${HONEYGAIN_ACCOUNTS[@]}")
+  echo "Starting Honeygain with ${#HONEYGAIN_ACCOUNTS[@]} account(s)..."
+  sudo BASE_NS=honeyns VETH_PREFIX=honey WORKDIR=/tmp/honeygain_multi HONEYGAIN_ACCOUNTS="$account_blob" \
+    bash "$HONEYGAIN_SCRIPT" proxies.txt &
+  PIDS+=($!)
+}
+
+run_mysterium() {
+  if [[ ! -x "$MYSTERIUM_SCRIPT" ]]; then
+    echo "direct_mysterium.sh not found or not executable at $MYSTERIUM_SCRIPT"
+    return
+  fi
+  echo "Starting Mysterium node instances..."
+  sudo BASE_NS=mysterns VETH_PREFIX=myster WORKDIR=/tmp/mysterium_multi \
+    MYST_BASE_DIR="$BASE_DIR/myst" \
+    bash "$MYSTERIUM_SCRIPT" proxies.txt &
   PIDS+=($!)
 }
 
@@ -409,9 +480,12 @@ menu() {
   echo "7) Install EarnApp Binary"
   echo "8) Install Dependencies"
   echo "9) Run ALL (Safe Mode)"
+  echo "V) Install Wipter Binary"
   echo "A) Clone & Run custom repo"
   echo "H) Run Honeygain"
   echo "W) Run Wipter"
+  echo "M) Run Mysterium Node"
+  echo "I) Install Mysterium Node"
   echo "0) Exit"
   echo "==============================================="
 }
@@ -431,6 +505,7 @@ while true; do
     6) sudo bash "$INSTALL_SCRIPT" ; wait ;;
     7) install_earnapp ; wait ;;
     8) install_dependencies ; wait ;;
+    V|v) install_wipter ; wait ;;
     9)
       run_earnapp
       run_traff
@@ -439,6 +514,7 @@ while true; do
       run_castar
       run_honeygain
       run_wipter
+      run_mysterium
       echo "All services running (staggered safe mode). Press Ctrl+C to stop."
       wait
       ;;
@@ -450,6 +526,8 @@ while true; do
       ;;
     H|h) run_honeygain ; wait ;;
     W|w) run_wipter ; wait ;;
+    M|m) run_mysterium ; wait ;;
+    I|i) sudo bash "$MYST_INSTALL_SCRIPT" ; wait ;;
     0) cleanup ;;
     *) echo "Invalid option." ;;
   esac
