@@ -550,6 +550,7 @@ main() {
     fi
     used=$((used+1))
     start_hev_socks5_tunnel_and_wipter "$used" "$p" "$runner" || true
+    sleep 5
   done
 
   if (( used > 0 )); then
