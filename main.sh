@@ -132,9 +132,19 @@ cleanup() {
   EXITING=1
   echo -e "\nStopping all running services..."
 
+  # Stop sub-processes using proper privilege escalation
   for pid in "${PIDS[@]:-}"; do
-    kill "$pid" 2>/dev/null || true
+    if sudo kill -0 "$pid" 2>/dev/null; then
+      # Kill children attached to the sudo wrapper
+      sudo pkill -TERM -P "$pid" 2>/dev/null || true
+      # Kill the sudo wrapper itself
+      sudo kill -TERM "$pid" 2>/dev/null || true
+    fi
   done
+
+  # Explicit fallback signal to trigger trap cleanup inside child scripts
+  sudo pkill -TERM -f "direct_.*\.sh" 2>/dev/null || true
+
   wait 2>/dev/null || true
 
   for subnet in "${CREATED_SUBNETS[@]:-}"; do
@@ -406,29 +416,6 @@ run_wipter() {
        bash "$WIPTER_SCRIPT" proxies.txt &
   PIDS+=($!)
 }
-run_honeygain() {
-  if [[ ! -x "$HONEYGAIN_SCRIPT" ]]; then
-    echo "direct_honeygain.sh not found or not executable at $HONEYGAIN_SCRIPT"
-    return
-  fi
-  if [[ ! -x "$BASE_DIR/app/honeygain_file/honeygain" ]]; then
-    echo "Honeygain binary missing at app/honeygain_file/honeygain"
-    return
-  fi
-
-  setup_honeygain_accounts
-  if ((${#HONEYGAIN_ACCOUNTS[@]} == 0)); then
-    echo "No Honeygain accounts configured."
-    return
-  fi
-
-  local account_blob
-  account_blob=$(printf '%s\n' "${HONEYGAIN_ACCOUNTS[@]}")
-  echo "Starting Honeygain with ${#HONEYGAIN_ACCOUNTS[@]} account(s)..."
-  sudo BASE_NS=honeyns VETH_PREFIX=honey WORKDIR=/tmp/honeygain_multi HONEYGAIN_ACCOUNTS="$account_blob" \
-    bash "$HONEYGAIN_SCRIPT" proxies.txt &
-  PIDS+=($!)
-}
 
 run_mysterium() {
   if [[ ! -x "$MYSTERIUM_SCRIPT" ]]; then
@@ -454,8 +441,8 @@ run_honeygain() {
   fi
 
   setup_honeygain_accounts || return
-  create_netns_with_veth "honeyns" "honey" "${NS_INDEX[honeyns]}"
-  echo "Starting Honeygain..."
+  
+  echo "Starting Honeygain with ${#HONEYGAIN_ACCOUNTS[@]} account(s)..."
   sudo BASE_NS=honeyns \
        VETH_PREFIX=honey \
        WORKDIR=/tmp/honeygain_multi \
