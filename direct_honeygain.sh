@@ -22,6 +22,7 @@ DEVICES_PER_ACCOUNT=10
 mkdir -p "$WORKDIR"
 
 declare -a HONEYGAIN_ACCOUNTS=()
+CLEANUP_DONE=0
 
 require_root() {
   if [[ $EUID -ne 0 ]]; then
@@ -81,7 +82,7 @@ check_proxy() {
   fi
 
   start="$(date +%s%3N)"
-  if ! curl -fsS --proxy "$p" --connect-timeout "$CONNECT_TIMEOUT" --max-time "$TOTAL_TIMEOUT" "http://1.1.1.1" >/dev/null; then
+  if ! curl -fsS --proxy "$p" --connect-timeout "$CONNECT_TIMEOUT" --max-time "$TOTAL_TIMEOUT" "http://1.1.1.1" >/dev/null 2>&1; then
     echo "FAIL"
     return 1
   fi
@@ -150,11 +151,11 @@ pin_proxy_route_in_ns() {
   local dev="${VETH_PREFIX}${idx}n"
 
   if [[ "$proxy_host" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    ip netns exec "$ns" ip route replace "$proxy_host/32" via "$gw" dev "$dev" || true
+    ip netns exec "$ns" ip route replace "$proxy_host/32" via "$gw" dev "$dev" 2>/dev/null || true
   else
-    mapfile -t ips < <(getent ahostsv4 "$proxy_host" | awk '{print $1}' | sort -u)
+    mapfile -t ips < <(getent ahostsv4 "$proxy_host" 2>/dev/null | awk '{print $1}' | sort -u)
     for ip in "${ips[@]}"; do
-      ip netns exec "$ns" ip route replace "$ip/32" via "$gw" dev "$dev" || true
+      [[ -n "$ip" ]] && ip netns exec "$ns" ip route replace "$ip/32" via "$gw" dev "$dev" 2>/dev/null || true
     done
   fi
 }
@@ -172,11 +173,11 @@ bypass_dns_via_veth() {
     while read -r _ ip; do
       [[ "${_:-}" == "nameserver" ]] || continue
       [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
-      ip netns exec "$ns" ip route replace "$ip/32" via "$gw" dev "$dev" || true
+      ip netns exec "$ns" ip route replace "$ip/32" via "$gw" dev "$dev" 2>/dev/null || true
     done < <(grep -E '^\s*nameserver\s+' "$resolv")
   else
     for ip in 1.1.1.1 8.8.8.8; do
-      ip netns exec "$ns" ip route replace "$ip/32" via "$gw" dev "$dev" || true
+      ip netns exec "$ns" ip route replace "$ip/32" via "$gw" dev "$dev" 2>/dev/null || true
     done
   fi
 }
@@ -184,14 +185,14 @@ bypass_dns_via_veth() {
 reset_ns_firewall_allow_all() {
   local ns="$1"
   ip netns exec "$ns" sh -c '
-    iptables -F
-    iptables -t nat -F
-    iptables -t mangle -F
+    iptables -F 2>/dev/null || true
+    iptables -t nat -F 2>/dev/null || true
+    iptables -t mangle -F 2>/dev/null || true
     iptables -t raw -F 2>/dev/null || true
-    iptables -P INPUT ACCEPT
-    iptables -P OUTPUT ACCEPT
-    iptables -P FORWARD ACCEPT
-  '
+    iptables -P INPUT ACCEPT 2>/dev/null || true
+    iptables -P OUTPUT ACCEPT 2>/dev/null || true
+    iptables -P FORWARD ACCEPT 2>/dev/null || true
+  ' 2>/dev/null || true
 }
 
 configure_policy_routing() {
@@ -240,9 +241,9 @@ start_tun2socks_and_honeygain() {
   local B C
   read -r B C <<<"$(calc_octets "$idx")"
 
-  ip netns exec "$ns" ip tuntap add dev tun0 mode tun
-  ip netns exec "$ns" ip addr add "198.18.${B}.${C}/30" dev tun0
-  ip netns exec "$ns" ip link set tun0 up
+  ip netns exec "$ns" ip tuntap add dev tun0 mode tun 2>/dev/null || true
+  ip netns exec "$ns" ip addr add "198.18.${B}.${C}/30" dev tun0 2>/dev/null || true
+  ip netns exec "$ns" ip link set tun0 up 2>/dev/null || true
 
   pin_proxy_route_in_ns "$ns" "$idx" "$host"
 
@@ -271,19 +272,75 @@ start_tun2socks_and_honeygain() {
   echo $! >"$WORKDIR/honeygain_${idx}.pid"
 }
 
+kill_process_graceful() {
+  local pidfile="$1"
+  local name="$2"
+  
+  [[ -f "$pidfile" ]] || return 0
+  
+  local pid
+  pid="$(cat "$pidfile" 2>/dev/null)" || return 0
+  [[ -n "$pid" ]] || return 0
+  
+  if kill -0 "$pid" 2>/dev/null; then
+    echo "  Stopping $name (PID $pid)..."
+    kill "$pid" 2>/dev/null || true
+    
+    # Wait up to 5 seconds for graceful shutdown
+    local count=0
+    while kill -0 "$pid" 2>/dev/null && (( count < 50 )); do
+      sleep 0.1
+      count=$((count + 1))
+    done
+    
+    # Force kill if still running
+    if kill -0 "$pid" 2>/dev/null; then
+      echo "  Force killing $name (PID $pid)..."
+      kill -9 "$pid" 2>/dev/null || true
+      sleep 0.2
+    fi
+  fi
+  
+  rm -f "$pidfile"
+}
+
 cleanup() {
+  # Prevent double cleanup
+  [[ "$CLEANUP_DONE" == "1" ]] && return 0
+  CLEANUP_DONE=1
+  
   echo
   echo "Cleaning up Honeygain namespaces..."
-  for f in "$WORKDIR"/honeygain_*.pid; do [[ -f "$f" ]] && kill "$(cat "$f")" 2>/dev/null || true; done
-  for f in "$WORKDIR"/tun2socks_*.pid; do [[ -f "$f" ]] && kill "$(cat "$f")" 2>/dev/null || true; done
-  for ns in $(ip netns list | awk '{print $1}' | grep -E "^${BASE_NS}[0-9]+$" || true); do
+  
+  # Kill all honeygain processes
+  for f in "$WORKDIR"/honeygain_*.pid; do
+    [[ -f "$f" ]] || continue
+    kill_process_graceful "$f" "honeygain_${f##*/honeygain_}"
+  done
+  
+  # Kill all tun2socks processes
+  for f in "$WORKDIR"/tun2socks_*.pid; do
+    [[ -f "$f" ]] || continue
+    kill_process_graceful "$f" "tun2socks_${f##*/tun2socks_}"
+  done
+  
+  # Clean up network namespaces
+  echo "  Removing network namespaces..."
+  for ns in $(ip netns list 2>/dev/null | awk '{print $1}' | grep -E "^${BASE_NS}[0-9]+$" || true); do
     local idx="${ns#${BASE_NS}}"
+    echo "  Deleting namespace $ns..."
     ip link del "${VETH_PREFIX}${idx}h" 2>/dev/null || true
     ip netns del "$ns" 2>/dev/null || true
     rm -rf "/etc/netns/$ns" 2>/dev/null || true
   done
+  
+  echo "Cleanup complete."
 }
+
+# Set up signal handlers
 trap cleanup EXIT
+trap 'echo; echo "Interrupted. Cleaning up..."; exit 130' INT
+trap 'echo; echo "Terminated. Cleaning up..."; exit 143' TERM
 
 main() {
   require_root
@@ -338,8 +395,27 @@ main() {
   echo "Started $used Honeygain device(s). Logs:"
   echo "  $WORKDIR/honeygain_*.log"
   echo "  $WORKDIR/tun2socks_*.log"
-  echo "Ctrl+C to stop and cleanup."
-  wait
+  echo "Press Ctrl+C to stop and cleanup."
+  
+  # Wait for all background jobs, allowing interruption
+  while true; do
+    # Check if any processes are still running
+    local running=0
+    for f in "$WORKDIR"/honeygain_*.pid "$WORKDIR"/tun2socks_*.pid; do
+      [[ -f "$f" ]] || continue
+      local pid
+      pid="$(cat "$f" 2>/dev/null)" || continue
+      if kill -0 "$pid" 2>/dev/null; then
+        running=1
+        break
+      fi
+    done
+    
+    [[ "$running" == "1" ]] || break
+    sleep 1
+  done
+  
+  echo "All processes exited."
 }
 
 main "$@"
