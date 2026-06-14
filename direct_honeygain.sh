@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+
 sudo cp app/honeygain_file/libhg.so.2.0.0 /usr/lib/
 sudo cp app/honeygain_file/libmsquic.so.2 /usr/lib/
 set -euo pipefail
@@ -251,10 +252,8 @@ start_tun2socks_and_honeygain() {
 
   local t_pidfile="$WORKDIR/tun2socks_${idx}.pid"
   local t_logfile="$WORKDIR/tun2socks_${idx}.log"
-  ip netns exec "$ns" bash -c "
-    tun2socks -device tun0 -proxy '$proxy' -fwmark '$FWMARK' >'$t_logfile' 2>&1 &
-    echo \$! > '$t_pidfile'
-  "
+  ip netns exec "$ns" bash -c "exec tun2socks -device tun0 -proxy '$proxy' -fwmark '$FWMARK'" >"$t_logfile" 2>&1 &
+  echo $! > "$t_pidfile"
 
   configure_policy_routing "$ns" "$idx"
   bypass_dns_via_veth "$ns" "$idx"
@@ -268,9 +267,7 @@ start_tun2socks_and_honeygain() {
   mkdir -p "$inst_dir"
 
   echo "[$idx] Starting Honeygain for $email as device=$device_name via proxy=$proxy (netns=$ns)"
-  ip netns exec "$ns" bash -c "cd '$(pwd)'; export HOME='$inst_dir'; '$HONEYGAIN_BIN' -tou-accept -email '$email' -pass '$password' -device '$device_name'" \
-    >"$app_logfile" 2>&1 &
-
+  ip netns exec "$ns" bash -c "cd '$(pwd)'; export HOME='$inst_dir'; exec '$HONEYGAIN_BIN' -tou-accept -email '$email' -pass '$password' -device '$device_name'" >"$app_logfile" 2>&1 &
   echo $! >"$WORKDIR/honeygain_${idx}.pid"
 }
 
@@ -286,7 +283,7 @@ kill_process_graceful() {
   
   if kill -0 "$pid" 2>/dev/null; then
     echo "  Stopping $name (PID $pid)..."
-    kill "$pid" 2>/dev/null || true
+    kill -TERM "$pid" 2>/dev/null || true
     
     # Wait up to 5 seconds for graceful shutdown
     local count=0
