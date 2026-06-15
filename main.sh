@@ -138,8 +138,23 @@ cleanup() {
   echo -e "\nStopping all running services..."
 
   for pid in "${PIDS[@]:-}"; do
-    kill "$pid" 2>/dev/null || true
+    if [[ -n "$pid" ]]; then
+      kill "$pid" 2>/dev/null || true
+    fi
   done
+
+  echo "Running aggressive process fallback cleanup..."
+  sudo pkill -f direct_earnapp.sh || true
+  sudo pkill -f direct_traff.sh || true
+  sudo pkill -f direct_urnetwork.sh || true
+  sudo pkill -f direct_wipter.sh || true
+  sudo pkill -f direct_honeygain.sh || true
+  sudo pkill -f direct_mysterium.sh || true
+  sudo pkill -f tun2socks || true
+  sudo pkill -f honeygain || true
+  sudo pkill -f psclient || true
+  sudo pkill -f CastarSDK || true
+
   wait 2>/dev/null || true
 
   for subnet in "${CREATED_SUBNETS[@]:-}"; do
@@ -216,6 +231,7 @@ install_wipter() {
 
   echo "Wipter install complete."
 }
+
 load_honeygain_accounts() {
   HONEYGAIN_ACCOUNTS=()
   if [[ -f "$HONEYGAIN_ACCOUNTS_FILE" ]]; then
@@ -225,8 +241,6 @@ load_honeygain_accounts() {
     done < "$HONEYGAIN_ACCOUNTS_FILE"
   fi
 }
-
-declare -a HONEYGAIN_ACCOUNTS=()
 
 save_honeygain_accounts() {
   : > "$HONEYGAIN_ACCOUNTS_FILE"
@@ -335,61 +349,92 @@ clone_and_run() {
 }
 
 run_earnapp() {
+  local mode="${1:-bg}"
   create_netns_with_veth "earnns" "earn" "${NS_INDEX[earnns]}"
   echo "Starting EarnApp..."
-  sudo BASE_NS=earnns VETH_PREFIX=earn WORKDIR=/tmp/earnapp_multi \
-    bash "$EARNAPP_SCRIPT" proxies.txt &
-  PIDS+=($!)
+  if [[ "$mode" == "fg" ]]; then
+    trap 'echo "Returning to main menu..."' INT
+    sudo BASE_NS=earnns VETH_PREFIX=earn WORKDIR=/tmp/earnapp_multi bash "$EARNAPP_SCRIPT" proxies.txt || true
+    trap cleanup INT TERM
+  else
+    sudo BASE_NS=earnns VETH_PREFIX=earn WORKDIR=/tmp/earnapp_multi bash "$EARNAPP_SCRIPT" proxies.txt &
+    PIDS+=($!)
+  fi
 }
 
 run_traff() {
+  local mode="${1:-bg}"
   if [[ -z "$TRAFF_TOKEN" ]]; then echo "Traff token not set."; return; fi
   create_netns_with_veth "traffns" "traff" "${NS_INDEX[traffns]}"
   local RUNTIME="/tmp/traff_runtime.sh"
   cp "$TRAFF_SCRIPT" "$RUNTIME"
   sed -i "s|--token \".*\"|--token \"$TRAFF_TOKEN\"|g" "$RUNTIME"
   echo "Starting Traff..."
-  sudo BASE_NS=traffns VETH_PREFIX=traff WORKDIR=/tmp/traff_multi \
-    bash "$RUNTIME" proxies.txt &
-  PIDS+=($!)
+  if [[ "$mode" == "fg" ]]; then
+    trap 'echo "Returning to main menu..."' INT
+    sudo BASE_NS=traffns VETH_PREFIX=traff WORKDIR=/tmp/traff_multi bash "$RUNTIME" proxies.txt || true
+    trap cleanup INT TERM
+  else
+    sudo BASE_NS=traffns VETH_PREFIX=traff WORKDIR=/tmp/traff_multi bash "$RUNTIME" proxies.txt &
+    PIDS+=($!)
+  fi
 }
 
 run_packetstream() {
+  local mode="${1:-bg}"
   if [[ -z "$PS_TOKEN" ]]; then echo "PacketStream token not set."; return; fi
   create_netns_with_veth "psns" "ps" "${NS_INDEX[psns]}"
   local RUNTIME="/tmp/ps_runtime.sh"
   cp "$TRAFF_SCRIPT" "$RUNTIME"
   sed -i "s|APP_CMD=.*|APP_CMD=( env CID=\"$PS_TOKEN\" PS_IS_DOCKER=true ./app/psclient )|g" "$RUNTIME"
   echo "Starting PacketStream..."
-  sudo BASE_NS=psns VETH_PREFIX=ps WORKDIR=/tmp/ps_multi \
-    bash "$RUNTIME" proxies.txt &
-  PIDS+=($!)
+  if [[ "$mode" == "fg" ]]; then
+    trap 'echo "Returning to main menu..."' INT
+    sudo BASE_NS=psns VETH_PREFIX=ps WORKDIR=/tmp/ps_multi bash "$RUNTIME" proxies.txt || true
+    trap cleanup INT TERM
+  else
+    sudo BASE_NS=psns VETH_PREFIX=ps WORKDIR=/tmp/ps_multi bash "$RUNTIME" proxies.txt &
+    PIDS+=($!)
+  fi
 }
 
 run_castar() {
+  local mode="${1:-bg}"
   if [[ -z "$CASTAR_KEY" ]]; then echo "Castar key not set."; return; fi
   create_netns_with_veth "castarns" "castar" "${NS_INDEX[castarns]}"
   local RUNTIME="/tmp/castar_runtime.sh"
   cp "$TRAFF_SCRIPT" "$RUNTIME"
   sed -i "s|APP_CMD=.*|APP_CMD=( ./app/CastarSDK -key=\"$CASTAR_KEY\" )|g" "$RUNTIME"
   echo "Starting Castar..."
-  sudo BASE_NS=castarns VETH_PREFIX=castar WORKDIR=/tmp/castar_multi \
-    bash "$RUNTIME" proxies.txt &
-  PIDS+=($!)
+  if [[ "$mode" == "fg" ]]; then
+    trap 'echo "Returning to main menu..."' INT
+    sudo BASE_NS=castarns VETH_PREFIX=castar WORKDIR=/tmp/castar_multi bash "$RUNTIME" proxies.txt || true
+    trap cleanup INT TERM
+  else
+    sudo BASE_NS=castarns VETH_PREFIX=castar WORKDIR=/tmp/castar_multi bash "$RUNTIME" proxies.txt &
+    PIDS+=($!)
+  fi
 }
 
 run_urnetwork() {
+  local mode="${1:-bg}"
   create_netns_with_veth "urns" "ur" "${NS_INDEX[urns]}"
   echo "Starting UrNetwork..."
   if [[ ! -f "$HOME/.urnetwork/jwt" ]]; then
     ./app/provider auth
   fi
-  sudo BASE_NS=urns VETH_PREFIX=ur WORKDIR=/tmp/ur_multi \
-    bash "$UR_SCRIPT" proxies.txt &
-  PIDS+=($!)
+  if [[ "$mode" == "fg" ]]; then
+    trap 'echo "Returning to main menu..."' INT
+    sudo BASE_NS=urns VETH_PREFIX=ur WORKDIR=/tmp/ur_multi bash "$UR_SCRIPT" proxies.txt || true
+    trap cleanup INT TERM
+  else
+    sudo BASE_NS=urns VETH_PREFIX=ur WORKDIR=/tmp/ur_multi bash "$UR_SCRIPT" proxies.txt &
+    PIDS+=($!)
+  fi
 }
 
 run_wipter() {
+  local mode="${1:-bg}"
   if [[ ! -x "$WIPTER_SCRIPT" ]]; then
     echo "direct_wipter.sh not found or not executable at $WIPTER_SCRIPT"
     echo "Place direct_wipter.sh in $BASE_DIR and chmod +x it."
@@ -401,58 +446,36 @@ run_wipter() {
   fi
   create_netns_with_veth "wipterns" "wipter" "${NS_INDEX[wipterns]}"
   echo "Starting Wipter..."
-  sudo BASE_NS=wipterns \
-       VETH_PREFIX=wipter \
-       WORKDIR=/tmp/wipter_multi \
-       WIPTER_EMAIL="$WIPTER_EMAIL" \
-       WIPTER_PASSWORD="$WIPTER_PASSWORD" \
-       EMAIL="$WIPTER_EMAIL" \
-       PASSWORD="$WIPTER_PASSWORD" \
-       bash "$WIPTER_SCRIPT" proxies.txt &
-  PIDS+=($!)
+  if [[ "$mode" == "fg" ]]; then
+    trap 'echo "Returning to main menu..."' INT
+    sudo BASE_NS=wipterns \
+         VETH_PREFIX=wipter \
+         WORKDIR=/tmp/wipter_multi \
+         WIPTER_EMAIL="$WIPTER_EMAIL" \
+         WIPTER_PASSWORD="$WIPTER_PASSWORD" \
+         EMAIL="$WIPTER_EMAIL" \
+         PASSWORD="$WIPTER_PASSWORD" \
+         bash "$WIPTER_SCRIPT" proxies.txt || true
+    trap cleanup INT TERM
+  else
+    sudo BASE_NS=wipterns \
+         VETH_PREFIX=wipter \
+         WORKDIR=/tmp/wipter_multi \
+         WIPTER_EMAIL="$WIPTER_EMAIL" \
+         WIPTER_PASSWORD="$WIPTER_PASSWORD" \
+         EMAIL="$WIPTER_EMAIL" \
+         PASSWORD="$WIPTER_PASSWORD" \
+         bash "$WIPTER_SCRIPT" proxies.txt &
+    PIDS+=($!)
+  fi
 }
+
 run_honeygain() {
+  local mode="${1:-bg}"
   if [[ ! -x "$HONEYGAIN_SCRIPT" ]]; then
     echo "direct_honeygain.sh not found or not executable at $HONEYGAIN_SCRIPT"
     return
   fi
-  if [[ ! -x "$BASE_DIR/app/honeygain_file/honeygain" ]]; then
-    echo "Honeygain binary missing at app/honeygain_file/honeygain"
-    return
-  fi
-
-  setup_honeygain_accounts
-  if ((${#HONEYGAIN_ACCOUNTS[@]} == 0)); then
-    echo "No Honeygain accounts configured."
-    return
-  fi
-
-  local account_blob
-  account_blob=$(printf '%s\n' "${HONEYGAIN_ACCOUNTS[@]}")
-  echo "Starting Honeygain with ${#HONEYGAIN_ACCOUNTS[@]} account(s)..."
-  sudo BASE_NS=honeyns VETH_PREFIX=honey WORKDIR=/tmp/honeygain_multi HONEYGAIN_ACCOUNTS="$account_blob" \
-    bash "$HONEYGAIN_SCRIPT" proxies.txt &
-  PIDS+=($!)
-}
-
-run_mysterium() {
-  if [[ ! -x "$MYSTERIUM_SCRIPT" ]]; then
-    echo "direct_mysterium.sh not found or not executable at $MYSTERIUM_SCRIPT"
-    return
-  fi
-  echo "Starting Mysterium node instances..."
-  sudo BASE_NS=mysterns VETH_PREFIX=myster WORKDIR=/tmp/mysterium_multi \
-    MYST_BASE_DIR="$BASE_DIR/myst" \
-    bash "$MYSTERIUM_SCRIPT" proxies.txt &
-  PIDS+=($!)
-}
-
-run_honeygain() {
-  if [[ ! -x "$HONEYGAIN_SCRIPT" ]]; then
-    echo "direct_honeygain.sh not found or not executable at $HONEYGAIN_SCRIPT"
-    return
-  fi
-
   if [[ ! -x "$BASE_DIR/app/honeygain_file/honeygain" ]]; then
     echo "Honeygain binary not found or not executable at $BASE_DIR/app/honeygain_file/honeygain"
     return
@@ -461,12 +484,43 @@ run_honeygain() {
   setup_honeygain_accounts || return
   create_netns_with_veth "honeyns" "honey" "${NS_INDEX[honeyns]}"
   echo "Starting Honeygain..."
-  sudo BASE_NS=honeyns \
-       VETH_PREFIX=honey \
-       WORKDIR=/tmp/honeygain_multi \
-       HONEYGAIN_ACCOUNTS_FILE="$HONEYGAIN_ACCOUNTS_FILE" \
-       bash "$HONEYGAIN_SCRIPT" proxies.txt &
-  PIDS+=($!)
+  if [[ "$mode" == "fg" ]]; then
+    trap 'echo "Returning to main menu..."' INT
+    sudo BASE_NS=honeyns \
+         VETH_PREFIX=honey \
+         WORKDIR=/tmp/honeygain_multi \
+         HONEYGAIN_ACCOUNTS_FILE="$HONEYGAIN_ACCOUNTS_FILE" \
+         bash "$HONEYGAIN_SCRIPT" proxies.txt || true
+    trap cleanup INT TERM
+  else
+    sudo BASE_NS=honeyns \
+         VETH_PREFIX=honey \
+         WORKDIR=/tmp/honeygain_multi \
+         HONEYGAIN_ACCOUNTS_FILE="$HONEYGAIN_ACCOUNTS_FILE" \
+         bash "$HONEYGAIN_SCRIPT" proxies.txt &
+    PIDS+=($!)
+  fi
+}
+
+run_mysterium() {
+  local mode="${1:-bg}"
+  if [[ ! -x "$MYSTERIUM_SCRIPT" ]]; then
+    echo "direct_mysterium.sh not found or not executable at $MYSTERIUM_SCRIPT"
+    return
+  fi
+  echo "Starting Mysterium node instances..."
+  if [[ "$mode" == "fg" ]]; then
+    trap 'echo "Returning to main menu..."' INT
+    sudo BASE_NS=mysterns VETH_PREFIX=myster WORKDIR=/tmp/mysterium_multi \
+      MYST_BASE_DIR="$BASE_DIR/myst" \
+      bash "$MYSTERIUM_SCRIPT" proxies.txt || true
+    trap cleanup INT TERM
+  else
+    sudo BASE_NS=mysterns VETH_PREFIX=myster WORKDIR=/tmp/mysterium_multi \
+      MYST_BASE_DIR="$BASE_DIR/myst" \
+      bash "$MYSTERIUM_SCRIPT" proxies.txt &
+    PIDS+=($!)
+  fi
 }
 
 menu() {
@@ -497,24 +551,24 @@ while true; do
   menu
   read -rp "Select option: " opt || cleanup
   case "$opt" in
-    1) run_earnapp ; wait ;;
-    2) run_traff ; wait ;;
-    3) run_packetstream ; wait ;;
-    4) run_urnetwork ; wait ;;
-    5) run_castar ; wait ;;
-    6) sudo bash "$INSTALL_SCRIPT" ; wait ;;
-    7) install_earnapp ; wait ;;
-    8) install_dependencies ; wait ;;
-    V|v) install_wipter ; wait ;;
+    1) run_earnapp "fg" ;;
+    2) run_traff "fg" ;;
+    3) run_packetstream "fg" ;;
+    4) run_urnetwork "fg" ;;
+    5) run_castar "fg" ;;
+    6) sudo bash "$INSTALL_SCRIPT" ;;
+    7) install_earnapp ;;
+    8) install_dependencies ;;
+    V|v) install_wipter ;;
     9)
-      run_earnapp
-      run_traff
-      run_packetstream
-      run_urnetwork
-      run_castar
-      run_honeygain
-      run_wipter
-      run_mysterium
+      run_earnapp "bg"
+      run_traff "bg"
+      run_packetstream "bg"
+      run_urnetwork "bg"
+      run_castar "bg"
+      run_honeygain "bg"
+      run_wipter "bg"
+      run_mysterium "bg"
       echo "All services running (staggered safe mode). Press Ctrl+C to stop."
       wait
       ;;
@@ -524,10 +578,10 @@ while true; do
       read -rp "Run command (relative to repo root, e.g. ./start.sh): " runcmd
       clone_and_run "$repo" "$aname" "$runcmd"
       ;;
-    H|h) run_honeygain ; wait ;;
-    W|w) run_wipter ; wait ;;
-    M|m) run_mysterium ; wait ;;
-    I|i) sudo bash "$MYST_INSTALL_SCRIPT" ; wait ;;
+    H|h) run_honeygain "fg" ;;
+    W|w) run_wipter "fg" ;;
+    M|m) run_mysterium "fg" ;;
+    I|i) sudo bash "$MYST_INSTALL_SCRIPT" ;;
     0) cleanup ;;
     *) echo "Invalid option." ;;
   esac
