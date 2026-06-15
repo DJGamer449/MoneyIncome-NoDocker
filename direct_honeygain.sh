@@ -283,7 +283,7 @@ cleanup() {
     rm -rf "/etc/netns/$ns" 2>/dev/null || true
   done
 }
-trap cleanup EXIT
+trap cleanup INT TERM EXIT
 
 main() {
   require_root
