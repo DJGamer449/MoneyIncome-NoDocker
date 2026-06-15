@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+sudo cp app/honeygain_file/libhg.so.2.0.0 /usr/lib/
+sudo cp app/honeygain_file/libmsquic.so.2 /usr/lib/
 set -euo pipefail
 
 PROXY_FILE="${1:-proxies.txt}"
