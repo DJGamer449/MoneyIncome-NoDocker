@@ -48,10 +48,10 @@ WIPTER_VERIFY_LOCALSTORAGE="${WIPTER_VERIFY_LOCALSTORAGE:-1}"
 WIPTER_SEED_SETTLE_SECONDS="${WIPTER_SEED_SETTLE_SECONDS:-3}"
 WIPTER_LAST_AUTH_USER="${WIPTER_LAST_AUTH_USER:-}"
 
-# Default for tun2socks branch: defer tun2socks until after DevTools/localStorage
-# seed, so localhost 127.0.0.1:9222 stays normal during the seed phase. The
-# after-seed hook then starts tun2socks before final Wipter launch.
-DEFER_TUNNEL_UNTIL_AFTER_SEED="${DEFER_TUNNEL_UNTIL_AFTER_SEED:-$WIPTER_LOCALSTORAGE_SEED}"
+# Start tun2socks BEFORE the seed phase so the Node.js Cognito login
+# goes through the proxy, avoiding host IP rate limits. Localhost 127.0.0.1:9222
+# stays normal during the seed phase due to iproute2 priority rules.
+DEFER_TUNNEL_UNTIL_AFTER_SEED="${DEFER_TUNNEL_UNTIL_AFTER_SEED:-0}"
 
 # main.sh passes WIPTER_EMAIL/WIPTER_PASSWORD. The seed script also supports
 # EMAIL/PASSWORD, so normalize once here and pass both names to each instance.
@@ -439,6 +439,9 @@ start_tun2socks_and_wipter() {
     configure_policy_routing "$ns" "$idx"
     bypass_dns_via_veth "$ns" "$idx"
     reset_ns_firewall_allow_all "$ns"
+    
+    # Let tun2socks initialize before launching the seed script
+    sleep 1
   fi
 
   # ==========================================
@@ -567,7 +570,6 @@ main() {
     fi
     used=$((used+1))
     start_tun2socks_and_wipter "$used" "$p" "$runner"
-    sleep 15
   done
 
   if (( used > 0 )); then
