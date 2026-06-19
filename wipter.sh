@@ -955,7 +955,23 @@ async function seedElectronLocalStorage(tokens) {
   }
 }
 
+function checkPublicIP() {
+  return new Promise(resolve => {
+    const req = http.get("http://api.ipify.org", { timeout: 3000 }, res => {
+      let data = "";
+      res.on("data", chunk => data += chunk);
+      res.on("end", () => resolve(data.trim()));
+    });
+    req.on("timeout", () => { req.destroy(); resolve("timeout"); });
+    req.on("error", (err) => resolve(`error (${err.message})`));
+  });
+}
+
 async function main() {
+  console.log("Checking current IP before login...");
+  const currentIp = await checkPublicIP();
+  console.log(`Current external IP for Cognito login: ${currentIp}`);
+
   console.log("Logging in to Wipter Cognito...");
   const tokens = await srpLogin();
   console.log("Cognito login succeeded.");
