@@ -570,6 +570,7 @@ main() {
     fi
     used=$((used+1))
     start_tun2socks_and_wipter "$used" "$p" "$runner"
+    sleep 15
   done
 
   if (( used > 0 )); then
