@@ -43,10 +43,8 @@ GLOBAL_WIPTER_LOG="${GLOBAL_WIPTER_LOG:-/tmp/wipter-run.log}"
 # instance runs in its own network namespace with its own loopback.
 WIPTER_LOCALSTORAGE_SEED="${WIPTER_LOCALSTORAGE_SEED:-1}"
 
-# Defer the tunnel until localStorage has been injected. hev policy routing can
-# interfere with localhost DevTools access; after seed, the hook starts the
-# tunnel before the final Wipter process launches.
-DEFER_TUNNEL_UNTIL_AFTER_SEED="${DEFER_TUNNEL_UNTIL_AFTER_SEED:-$WIPTER_LOCALSTORAGE_SEED}"
+# Tunnel is started immediately to avoid Cognito host IP rate limits.
+DEFER_TUNNEL_UNTIL_AFTER_SEED="${DEFER_TUNNEL_UNTIL_AFTER_SEED:-0}"
 
 # main.sh passes WIPTER_EMAIL/WIPTER_PASSWORD. The seed script also supports
 # EMAIL/PASSWORD, so normalize once here and pass both names to each instance.
@@ -235,15 +233,20 @@ bypass_dns_via_veth() {
   dev="${VETH_PREFIX}${idx}n"
   resolv="/etc/netns/$ns/resolv.conf"
 
+  # FIX: Explicitly add nameserver IPs directly to $TUN_TABLE.
+  # This stops priority 200 from grabbing DNS queries and dumping them
+  # into hev-socks5-tunnel when the proxy doesn't support UDP Associate.
   if [[ -f "$resolv" ]]; then
     while read -r _ ip; do
       [[ "${_:-}" == "nameserver" ]] || continue
       [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
       ip netns exec "$ns" ip route replace "$ip/32" via "$gw" dev "$dev" || true
+      ip netns exec "$ns" ip route replace "$ip/32" via "$gw" dev "$dev" table "$TUN_TABLE" || true
     done < <(grep -E '^\s*nameserver\s+' "$resolv")
   else
     for ip in 1.1.1.1 8.8.8.8; do
       ip netns exec "$ns" ip route replace "$ip/32" via "$gw" dev "$dev" || true
+      ip netns exec "$ns" ip route replace "$ip/32" via "$gw" dev "$dev" table "$TUN_TABLE" || true
     done
   fi
 }
@@ -271,13 +274,13 @@ configure_policy_routing() {
   ip netns exec "$ns" ip route replace default via "$gw" dev "$dev" 2>/dev/null || true
   ip netns exec "$ns" ip route flush table "$TUN_TABLE" 2>/dev/null || true
 
-  # Keep localhost/devtools traffic on loopback even after the catch-all tunnel rule.
-  # Without this, 127.0.0.1:$WIPTER_DEVTOOLS_PORT can be routed into tun0 by hev policy routing.
-  ip netns exec "$ns" ip route add local 127.0.0.0/8 dev lo table "$TUN_TABLE" 2>/dev/null ||     ip netns exec "$ns" ip route replace 127.0.0.0/8 dev lo table "$TUN_TABLE" 2>/dev/null || true
+  # Keep localhost/devtools traffic on loopback
+  ip netns exec "$ns" ip route add local 127.0.0.0/8 dev lo table "$TUN_TABLE" 2>/dev/null || \
+    ip netns exec "$ns" ip route replace 127.0.0.0/8 dev lo table "$TUN_TABLE" 2>/dev/null || true
   ip netns exec "$ns" ip route add default dev tun0 table "$TUN_TABLE" 2>/dev/null || true
 
-  ip netns exec "$ns" ip rule add to 127.0.0.0/8 lookup main priority 10 2>/dev/null || true
-  ip netns exec "$ns" ip rule add from 127.0.0.0/8 lookup main priority 11 2>/dev/null || true
+  ip netns exec "$ns" ip rule add to 127.0.0.0/8 lookup local priority 10 2>/dev/null || true
+  ip netns exec "$ns" ip rule add from 127.0.0.0/8 lookup local priority 11 2>/dev/null || true
   ip netns exec "$ns" ip rule add fwmark "$FWMARK" lookup main priority 100 2>/dev/null || true
   if [[ "$BYPASS_ALL_UDP" == "1" ]]; then
     ip netns exec "$ns" ip rule add ipproto udp lookup main priority 101 2>/dev/null || true
@@ -321,14 +324,12 @@ fi
 ip route replace default via '$gw' dev '$dev' 2>/dev/null || true
 ip route flush table '$TUN_TABLE' 2>/dev/null || true
 
-# Keep localhost/devtools/local IPC traffic on loopback. This is the key fix for
-# hev policy routing breaking 127.0.0.1 access.
 ip route add local 127.0.0.0/8 dev lo table '$TUN_TABLE' 2>/dev/null || \
   ip route replace 127.0.0.0/8 dev lo table '$TUN_TABLE' 2>/dev/null || true
 ip route add default dev tun0 table '$TUN_TABLE' 2>/dev/null || true
 
-ip rule add to 127.0.0.0/8 lookup main priority 10 2>/dev/null || true
-ip rule add from 127.0.0.0/8 lookup main priority 11 2>/dev/null || true
+ip rule add to 127.0.0.0/8 lookup local priority 10 2>/dev/null || true
+ip rule add from 127.0.0.0/8 lookup local priority 11 2>/dev/null || true
 ip rule add fwmark '$FWMARK' lookup main priority 100 2>/dev/null || true
 EOF
 
@@ -346,9 +347,11 @@ EOF
   cat >>"$hook_file" <<EOF
 ip rule add lookup '$TUN_TABLE' priority 200 2>/dev/null || true
 
+# Explicitly apply DNS routing in the hook as well
 if [ -f /etc/resolv.conf ]; then
   awk '/^nameserver[[:space:]]+[0-9.]+/ {print \$2}' /etc/resolv.conf | while read -r ip; do
     ip route replace "\$ip/32" via '$gw' dev '$dev' 2>/dev/null || true
+    ip route replace "\$ip/32" via '$gw' dev '$dev' table '$TUN_TABLE' 2>/dev/null || true
   done
 fi
 
@@ -368,8 +371,6 @@ EOF
 
 start_log_aggregator() {
   local idx="$1" app_log="$2" runtime_log="$3"
-  # Start each run with clean per-instance logs so stale messages like
-  # "No access token detected" from older attempts do not get replayed.
   : > "$app_log"
   : > "$runtime_log"
   touch "$GLOBAL_WIPTER_LOG"
@@ -397,12 +398,14 @@ start_hev_socks5_tunnel_and_wipter() {
   fwmark_dec=$((FWMARK))
   tun_ip="198.18.${B}.${C}"
 
+  # FIX: Added /30 to the ipv4 configuration. Without the mask, 
+  # hev-socks5-tunnel can silently crash or blackhole the routes.
   cat >"$t_cfgfile" <<EOF
 
 tunnel:
   name: tun0
   mtu: 8500
-  ipv4: $tun_ip
+  ipv4: ${tun_ip}/30
 socks5:
   address: $host
   port: $port
