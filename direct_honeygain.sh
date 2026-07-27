@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 
-sudo cp app/honeygain_file/libhg.so.2.0.0 /usr/lib/
-sudo cp app/honeygain_file/libmsquic.so.2 /usr/lib/
 set -euo pipefail
 
-PROXY_FILE="${1:-proxies.txt}"
+PROXY_FILE="proxies.txt"
 HONEYGAIN_BIN="${HONEYGAIN_BIN:-./app/honeygain_file/honeygain}"
 HONEYGAIN_ACCOUNTS_FILE="${HONEYGAIN_ACCOUNTS_FILE:-./honeygain_password.txt}"
 CHECK_WORKING="${CHECK_WORKING:-1}"
@@ -24,9 +22,34 @@ BYPASS_ALL_UDP="${BYPASS_ALL_UDP:-0}"
 DEVICES_PER_ACCOUNT=10
 mkdir -p "$WORKDIR"
 
+# Detach spawned children from the controlling terminal if possible.
+# This stops honeygain/tun2socks from putting the tty into raw mode
+# (which breaks Ctrl+C) and from receiving terminal-generated signals
+# (which makes honeygain SIGSEGV during its cgo call on Ctrl+C).
+SETSID="$(command -v setsid || true)"
+SAVED_STTY=""
+
 declare -a HONEYGAIN_ACCOUNTS=()
 CLEANUP_DONE=0
 
+# ---------------------------------------------------------------------------
+# Terminal helpers
+# ---------------------------------------------------------------------------
+save_terminal() {
+  SAVED_STTY="$(stty -g </dev/tty 2>/dev/null || true)"
+}
+
+restore_terminal() {
+  if [[ -n "${SAVED_STTY:-}" ]]; then
+    stty "$SAVED_STTY" </dev/tty 2>/dev/null || stty sane </dev/tty 2>/dev/null || true
+  else
+    stty sane </dev/tty 2>/dev/null || true
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Root / dependency checks
+# ---------------------------------------------------------------------------
 require_root() {
   if [[ $EUID -ne 0 ]]; then
     echo "Run as root. Example: sudo $0 $PROXY_FILE"
@@ -35,6 +58,13 @@ require_root() {
   command -v tun2socks >/dev/null 2>&1 || { echo "tun2socks not found in PATH"; exit 1; }
   [[ -x "$HONEYGAIN_BIN" ]] || { echo "Honeygain binary not executable: $HONEYGAIN_BIN"; exit 1; }
   [[ -f "$HONEYGAIN_ACCOUNTS_FILE" ]] || { echo "Honeygain account file not found: $HONEYGAIN_ACCOUNTS_FILE"; exit 1; }
+}
+
+require_root_light() {
+  if [[ $EUID -ne 0 ]]; then
+    echo "Run as root."
+    exit 1
+  fi
 }
 
 load_honeygain_accounts() {
@@ -49,6 +79,69 @@ load_honeygain_accounts() {
   }
 }
 
+# ---------------------------------------------------------------------------
+# Instance registry (one .meta file per running device)
+# ---------------------------------------------------------------------------
+write_instance_meta() {
+  local idx="$1" email="$2" device_num="$3" device_name="$4" proxy="$5" ns="$6"
+  cat > "$WORKDIR/inst_${idx}.meta" <<EOF
+idx=$idx
+email=$email
+device_num=$device_num
+device_name=$device_name
+proxy=$proxy
+ns=$ns
+EOF
+}
+
+meta_get() { # file key
+  sed -n "s/^${2}=//p" "$1" 2>/dev/null | head -n1
+}
+
+instance_status() { # idx -> running|dead|stopped
+  local pidf="$WORKDIR/honeygain_${1}.pid" pid
+  [[ -f "$pidf" ]] || { echo "stopped"; return; }
+  pid="$(cat "$pidf" 2>/dev/null || true)"
+  if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+    echo "running"
+  else
+    echo "dead"
+  fi
+}
+
+all_indices() {
+  {
+    shopt -s nullglob
+    local f b n
+    for f in "$WORKDIR"/inst_*.meta; do meta_get "$f" idx; done
+    for f in "$WORKDIR"/honeygain_*.pid "$WORKDIR"/tun2socks_*.pid; do
+      b="${f##*/}"; n="${b#*_}"; n="${n%.pid}"
+      [[ "$n" =~ ^[0-9]+$ ]] && echo "$n"
+    done
+    ip netns list 2>/dev/null | awk '{print $1}' | grep -E "^${BASE_NS}[0-9]+$" 2>/dev/null | sed "s/^${BASE_NS}//"
+    shopt -u nullglob
+  } 2>/dev/null | sort -un || true
+}
+
+expand_device_spec() { # "1" | "1,3,5" | "2-4" | "all"
+  local spec="$1" part a b n
+  if [[ "$spec" == "all" ]]; then echo "all"; return; fi
+  local parts
+  IFS=',' read -ra parts <<< "$spec"
+  for part in "${parts[@]}"; do
+    part="${part// /}"
+    if [[ "$part" =~ ^[0-9]+-[0-9]+$ ]]; then
+      a="${part%-*}"; b="${part#*-}"
+      for ((n=a; n<=b; n++)); do echo "$n"; done
+    elif [[ "$part" =~ ^[0-9]+$ ]]; then
+      echo "$part"
+    fi
+  done
+}
+
+# ---------------------------------------------------------------------------
+# Proxy handling
+# ---------------------------------------------------------------------------
 calc_octets() {
   local idx="$1"
   local B=$(( (idx-1) / 254 + 1 ))
@@ -100,6 +193,9 @@ check_proxy() {
   echo "OK ${ms}ms"
 }
 
+# ---------------------------------------------------------------------------
+# Networking
+# ---------------------------------------------------------------------------
 setup_nat_once() {
   sysctl -w net.ipv4.ip_forward=1 >/dev/null
   if ! iptables -t nat -C POSTROUTING -s 10.0.0.0/8 -j MASQUERADE 2>/dev/null; then
@@ -227,6 +323,9 @@ email_mailname() {
   printf '%s' "${sanitized:-device}"
 }
 
+# ---------------------------------------------------------------------------
+# Instance start
+# ---------------------------------------------------------------------------
 start_tun2socks_and_honeygain() {
   local idx="$1"
   local proxy="$2"
@@ -252,8 +351,9 @@ start_tun2socks_and_honeygain() {
 
   local t_pidfile="$WORKDIR/tun2socks_${idx}.pid"
   local t_logfile="$WORKDIR/tun2socks_${idx}.log"
-  ip netns exec "$ns" bash -c "exec tun2socks -device tun0 -proxy '$proxy' -fwmark '$FWMARK'" >"$t_logfile" 2>&1 &
-  echo $! > "$t_pidfile"
+  # setsid + </dev/null keeps this off the controlling terminal; the child
+  # records its own real PID (setsid may fork, so $! is unreliable).
+  $SETSID ip netns exec "$ns" bash -c "echo \$\$ > '$t_pidfile'; exec tun2socks -device tun0 -proxy '$proxy' -fwmark '$FWMARK'" </dev/null >"$t_logfile" 2>&1 &
 
   configure_policy_routing "$ns" "$idx"
   bypass_dns_via_veth "$ns" "$idx"
@@ -267,82 +367,303 @@ start_tun2socks_and_honeygain() {
   mkdir -p "$inst_dir"
 
   echo "[$idx] Starting Honeygain for $email as device=$device_name via proxy=$proxy (netns=$ns)"
-  ip netns exec "$ns" bash -c "cd '$(pwd)'; export HOME='$inst_dir'; exec '$HONEYGAIN_BIN' -tou-accept -email '$email' -pass '$password' -device '$device_name'" >"$app_logfile" 2>&1 &
-  echo $! >"$WORKDIR/honeygain_${idx}.pid"
+  $SETSID ip netns exec "$ns" bash -c "echo \$\$ > '$WORKDIR/honeygain_${idx}.pid'; cd '$(pwd)'; export HOME='$inst_dir'; exec '$HONEYGAIN_BIN' -tou-accept -email '$email' -pass '$password' -device '$device_name'" </dev/null >"$app_logfile" 2>&1 &
+
+  write_instance_meta "$idx" "$email" "$device_num" "$device_name" "$proxy" "$ns"
 }
 
+# ---------------------------------------------------------------------------
+# Process / instance teardown
+# ---------------------------------------------------------------------------
 kill_process_graceful() {
   local pidfile="$1"
   local name="$2"
-  
+
   [[ -f "$pidfile" ]] || return 0
-  
+
   local pid
   pid="$(cat "$pidfile" 2>/dev/null)" || return 0
-  [[ -n "$pid" ]] || return 0
-  
+  [[ -n "$pid" ]] || { rm -f "$pidfile"; return 0; }
+
   if kill -0 "$pid" 2>/dev/null; then
     echo "  Stopping $name (PID $pid)..."
-    kill -TERM "$pid" 2>/dev/null || true
-    
-    # Wait up to 5 seconds for graceful shutdown
+    # Children are started with setsid, so each is its own process-group
+    # leader (pgid == pid). Signal the whole group; fall back to single PID.
+    kill -TERM -"$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
+
     local count=0
     while kill -0 "$pid" 2>/dev/null && (( count < 50 )); do
       sleep 0.1
       count=$((count + 1))
     done
-    
-    # Force kill if still running
+
     if kill -0 "$pid" 2>/dev/null; then
       echo "  Force killing $name (PID $pid)..."
-      kill -9 "$pid" 2>/dev/null || true
+      kill -9 -"$pid" 2>/dev/null || kill -9 "$pid" 2>/dev/null || true
       sleep 0.2
     fi
   fi
-  
+
   rm -f "$pidfile"
 }
 
+teardown_instance() {
+  local idx="$1"
+  local ns="${BASE_NS}${idx}"
+
+  kill_process_graceful "$WORKDIR/honeygain_${idx}.pid" "honeygain_${idx}"
+  kill_process_graceful "$WORKDIR/tun2socks_${idx}.pid" "tun2socks_${idx}"
+
+  ip link del "${VETH_PREFIX}${idx}h" 2>/dev/null || true
+  ip netns del "$ns" 2>/dev/null || true
+  rm -rf "/etc/netns/$ns" 2>/dev/null || true
+  rm -f "$WORKDIR/inst_${idx}.meta" 2>/dev/null || true
+}
+
 cleanup() {
-  # Prevent double cleanup
   [[ "$CLEANUP_DONE" == "1" ]] && return 0
   CLEANUP_DONE=1
-  
+
   echo
   echo "Cleaning up Honeygain namespaces..."
-  
-  # Kill all honeygain processes
-  for f in "$WORKDIR"/honeygain_*.pid; do
-    [[ -f "$f" ]] || continue
-    kill_process_graceful "$f" "honeygain_${f##*/honeygain_}"
+  local idx
+  for idx in $(all_indices); do
+    teardown_instance "$idx"
   done
-  
-  # Kill all tun2socks processes
-  for f in "$WORKDIR"/tun2socks_*.pid; do
-    [[ -f "$f" ]] || continue
-    kill_process_graceful "$f" "tun2socks_${f##*/tun2socks_}"
-  done
-  
-  # Clean up network namespaces
-  echo "  Removing network namespaces..."
-  for ns in $(ip netns list 2>/dev/null | awk '{print $1}' | grep -E "^${BASE_NS}[0-9]+$" || true); do
-    local idx="${ns#${BASE_NS}}"
-    echo "  Deleting namespace $ns..."
-    ip link del "${VETH_PREFIX}${idx}h" 2>/dev/null || true
-    ip netns del "$ns" 2>/dev/null || true
-    rm -rf "/etc/netns/$ns" 2>/dev/null || true
-  done
-  
+  restore_terminal
   echo "Cleanup complete."
 }
 
-# Set up signal handlers
-trap cleanup EXIT
-trap 'echo; echo "Interrupted. Cleaning up..."; exit 130' INT
-trap 'echo; echo "Terminated. Cleaning up..."; exit 143' TERM
+# ---------------------------------------------------------------------------
+# Management commands: list / stop
+# ---------------------------------------------------------------------------
+cmd_list() {
+  shopt -s nullglob
+  local metas=("$WORKDIR"/inst_*.meta)
+  shopt -u nullglob
+  if (( ${#metas[@]} == 0 )); then
+    echo "No Honeygain instances found in $WORKDIR."
+    return 0
+  fi
 
+  local recs=() f email dn idx dname st proxy
+  for f in "${metas[@]}"; do
+    email="$(meta_get "$f" email)"
+    dn="$(meta_get "$f" device_num)"
+    idx="$(meta_get "$f" idx)"
+    dname="$(meta_get "$f" device_name)"
+    proxy="$(meta_get "$f" proxy)"
+    st="$(instance_status "$idx")"
+    recs+=("$(printf '%s\t%s\t%s\t%s\t%s\t%s' "$email" "$dn" "$idx" "$dname" "$st" "$proxy")")
+  done
+
+  local sorted
+  sorted="$(printf '%s\n' "${recs[@]}" | sort -t$'\t' -k1,1 -k2,2n)"
+
+  echo "Honeygain instances (WORKDIR=$WORKDIR):"
+  echo
+  local cur=""
+  while IFS=$'\t' read -r email dn idx dname st proxy; do
+    [[ -z "$email" ]] && continue
+    if [[ "$email" != "$cur" ]]; then
+      cur="$email"
+      echo "Account: $email"
+      printf '  %-7s %-22s %-8s %-5s %s\n' "device" "name" "status" "idx" "proxy"
+    fi
+    printf '  %-7s %-22s %-8s %-5s %s\n' "$dn" "$dname" "$st" "$idx" "$proxy"
+  done <<< "$sorted"
+}
+
+unique_emails() {
+  shopt -s nullglob
+  local f metas=("$WORKDIR"/inst_*.meta)
+  shopt -u nullglob
+  (( ${#metas[@]} > 0 )) || return 0
+  for f in "${metas[@]}"; do meta_get "$f" email; done | sort -u
+}
+
+stop_by_idx() {
+  local idx="$1"
+  [[ "$idx" =~ ^[0-9]+$ ]] || { echo "Bad idx: $idx"; return 1; }
+  echo "Stopping idx $idx..."
+  teardown_instance "$idx"
+}
+
+stop_account() {
+  local email="$1"
+  shopt -s nullglob
+  local f idx metas=("$WORKDIR"/inst_*.meta)
+  shopt -u nullglob
+  local stopped=0
+  for f in "${metas[@]}"; do
+    [[ "$(meta_get "$f" email)" == "$email" ]] || continue
+    idx="$(meta_get "$f" idx)"
+    echo "Stopping $email (idx $idx)..."
+    teardown_instance "$idx"
+    stopped=$((stopped+1))
+  done
+  echo "Stopped $stopped instance(s) for $email."
+}
+
+stop_account_devices() {
+  local email="$1" spec="$2"
+  local wanted
+  wanted="$(expand_device_spec "$spec" | sort -un)"
+  if [[ "$wanted" == "all" ]]; then stop_account "$email"; return; fi
+
+  shopt -s nullglob
+  local f dn idx metas=("$WORKDIR"/inst_*.meta)
+  shopt -u nullglob
+  local stopped=0
+  for f in "${metas[@]}"; do
+    [[ "$(meta_get "$f" email)" == "$email" ]] || continue
+    dn="$(meta_get "$f" device_num)"
+    if grep -qx "$dn" <<< "$wanted"; then
+      idx="$(meta_get "$f" idx)"
+      echo "Stopping $email device $dn (idx $idx)..."
+      teardown_instance "$idx"
+      stopped=$((stopped+1))
+    fi
+  done
+  echo "Stopped $stopped device(s) for $email."
+}
+
+stop_all() {
+  local idx count=0
+  for idx in $(all_indices); do
+    teardown_instance "$idx"
+    count=$((count+1))
+  done
+  echo "Stopped $count Honeygain instance(s)."
+}
+
+interactive_stop() {
+  # Recover the terminal in case something left it in raw mode.
+  stty sane </dev/tty 2>/dev/null || true
+
+  local emails=()
+  local e
+  while IFS= read -r e; do [[ -n "$e" ]] && emails+=("$e"); done < <(unique_emails)
+
+  if (( ${#emails[@]} == 0 )); then
+    echo "No Honeygain instances found in $WORKDIR."
+    return 0
+  fi
+
+  echo "Select a Honeygain account to manage:"
+  local i
+  for i in "${!emails[@]}"; do
+    printf '  %d) %s\n' "$((i+1))" "${emails[$i]}"
+  done
+  echo "  a) ALL accounts (stop everything)"
+  echo "  q) cancel"
+
+  local choice
+  read -rp "Choice: " choice
+  case "$choice" in
+    q|Q|"") echo "Cancelled."; return 0 ;;
+    a|A)
+      read -rp "Stop ALL instances across ALL accounts? [y/N]: " c
+      if [[ "$c" =~ ^[Yy]$ ]]; then stop_all; else echo "Cancelled."; fi
+      return 0 ;;
+  esac
+
+  if ! [[ "$choice" =~ ^[0-9]+$ ]] || (( choice < 1 || choice > ${#emails[@]} )); then
+    echo "Invalid choice."
+    return 1
+  fi
+
+  local email="${emails[$((choice-1))]}"
+  echo
+  echo "Devices for $email:"
+  local dn idx st f
+  shopt -s nullglob
+  local metas=("$WORKDIR"/inst_*.meta)
+  shopt -u nullglob
+  while IFS=$'\t' read -r dn idx; do
+    st="$(instance_status "$idx")"
+    printf '  device %-4s (idx %-4s) %s\n' "$dn" "$idx" "$st"
+  done < <(
+    for f in "${metas[@]}"; do
+      [[ "$(meta_get "$f" email)" == "$email" ]] || continue
+      printf '%s\t%s\n' "$(meta_get "$f" device_num)" "$(meta_get "$f" idx)"
+    done | sort -k1,1n
+  )
+
+  echo
+  echo "Enter devices to stop:  1   |   1,3,5   |   2-4   |   all"
+  local spec
+  read -rp "Devices: " spec
+  [[ -z "$spec" ]] && { echo "Nothing entered. Cancelled."; return 0; }
+
+  read -rp "Confirm stop [$spec] for $email? [y/N]: " c
+  [[ "$c" =~ ^[Yy]$ ]] || { echo "Cancelled."; return 0; }
+
+  if [[ "$spec" == "all" ]]; then
+    stop_account "$email"
+  else
+    stop_account_devices "$email" "$spec"
+  fi
+}
+
+cmd_stop() {
+  local a1="${1:-}" a2="${2:-}"
+  if [[ -z "$a1" ]]; then
+    interactive_stop
+    return
+  fi
+  case "$a1" in
+    all)
+      stop_all ;;
+    idx)
+      shift
+      (( $# > 0 )) || { echo "Usage: $0 stop idx <N> [N...]"; return 1; }
+      local i
+      for i in "$@"; do stop_by_idx "$i"; done ;;
+    *)
+      if [[ -z "$a2" ]]; then
+        stop_account "$a1"
+      else
+        stop_account_devices "$a1" "$a2"
+      fi ;;
+  esac
+}
+
+usage() {
+  cat <<EOF
+Usage:
+  $0 [proxies.txt]              Start Honeygain instances (default)
+  $0 run [proxies.txt]          Same as above
+  $0 list                       List instances grouped by account (with status)
+  $0 stop                       Interactive: pick an account, then device(s)
+  $0 stop all                   Stop every instance
+  $0 stop <email>               Stop all devices for one account
+  $0 stop <email> <devices>     Stop specific devices: 1  |  1,3,5  |  2-4
+  $0 stop idx <N> [N...]        Stop specific instance index(es)
+
+Env: BASE_NS, VETH_PREFIX, WORKDIR must match the running deployment
+     (defaults: honeyns / honey / /tmp/honeygain_multi).
+EOF
+}
+
+# ---------------------------------------------------------------------------
+# Run mode
+# ---------------------------------------------------------------------------
 main() {
+  PROXY_FILE="${1:-proxies.txt}"
+
   require_root
+  save_terminal
+
+  # Signal handlers (run mode only). INT/TERM -> exit -> EXIT trap -> cleanup.
+  trap cleanup EXIT
+  trap 'echo; echo "Interrupted. Cleaning up..."; exit 130' INT
+  trap 'echo; echo "Terminated. Cleaning up..."; exit 143' TERM
+
+  # Load honeygain shared libs if bundled alongside the binary.
+  [[ -f app/honeygain_file/libhg.so.2.0.0 ]] && cp -f app/honeygain_file/libhg.so.2.0.0 /usr/lib/ 2>/dev/null || true
+  [[ -f app/honeygain_file/libmsquic.so.2 ]] && cp -f app/honeygain_file/libmsquic.so.2 /usr/lib/ 2>/dev/null || true
+
   load_honeygain_accounts
   setup_nat_once
   [[ -f "$PROXY_FILE" ]] || { echo "Proxy file not found: $PROXY_FILE"; exit 1; }
@@ -394,11 +715,13 @@ main() {
   echo "Started $used Honeygain device(s). Logs:"
   echo "  $WORKDIR/honeygain_*.log"
   echo "  $WORKDIR/tun2socks_*.log"
-  echo "Press Ctrl+C to stop and cleanup."
-  
-  # Wait for all background jobs, allowing interruption
+  echo "Manage while running (from any root shell):"
+  echo "  sudo WORKDIR=$WORKDIR BASE_NS=$BASE_NS VETH_PREFIX=$VETH_PREFIX bash $0 list"
+  echo "  sudo WORKDIR=$WORKDIR BASE_NS=$BASE_NS VETH_PREFIX=$VETH_PREFIX bash $0 stop"
+  echo "Press Ctrl+C to stop everything and clean up."
+
+  # Wait until every instance has exited (interruptible by Ctrl+C).
   while true; do
-    # Check if any processes are still running
     local running=0
     for f in "$WORKDIR"/honeygain_*.pid "$WORKDIR"/tun2socks_*.pid; do
       [[ -f "$f" ]] || continue
@@ -409,12 +732,25 @@ main() {
         break
       fi
     done
-    
     [[ "$running" == "1" ]] || break
     sleep 1
   done
-  
+
   echo "All processes exited."
 }
 
-main "$@"
+# ---------------------------------------------------------------------------
+# Entry point / subcommand dispatch
+# ---------------------------------------------------------------------------
+case "${1:-}" in
+  list|ls|status)
+    require_root_light; set +e; cmd_list; exit 0 ;;
+  stop)
+    shift; require_root_light; set +e; cmd_stop "$@"; exit 0 ;;
+  help|-h|--help)
+    usage; exit 0 ;;
+  run)
+    shift; main "$@" ;;
+  *)
+    main "$@" ;;
+esac

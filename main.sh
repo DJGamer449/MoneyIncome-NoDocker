@@ -130,6 +130,8 @@ create_netns_with_veth() {
 cleanup() {
   [[ "$EXITING" == "1" ]] && return
   EXITING=1
+  # Recover the terminal in case a child left it in raw mode.
+  stty sane </dev/tty 2>/dev/null || true
   echo -e "\nStopping all running services..."
 
   # Stop sub-processes using proper privilege escalation
@@ -441,15 +443,66 @@ run_honeygain() {
   fi
 
   setup_honeygain_accounts || return
-  
+  start_honeygain_bg
+  echo "Honeygain is starting in the background."
+  # In "Run ALL" mode we must not block on the interactive control menu.
+  if [[ "${1:-}" != "nomenu" ]]; then
+    honeygain_control_menu
+  fi
+}
+
+# Start the honeygain supervisor in the background, logging to a file so it
+# doesn't fight the menu for the terminal. Children are detached (setsid)
+# inside the supervisor, so the terminal here stays usable.
+start_honeygain_bg() {
+  local HG_WORKDIR=/tmp/honeygain_multi
+  sudo mkdir -p "$HG_WORKDIR" 2>/dev/null || true
+  local HG_LOG="$HG_WORKDIR/supervisor.log"
+
   echo "Starting Honeygain with ${#HONEYGAIN_ACCOUNTS[@]} account(s)..."
+  echo "Supervisor output -> $HG_LOG"
+  sudo BASE_NS=honeyns \
+       VETH_PREFIX=honey \
+       WORKDIR="$HG_WORKDIR" \
+       HONEYGAIN_ACCOUNTS_FILE="$HONEYGAIN_ACCOUNTS_FILE" \
+       bash "$HONEYGAIN_SCRIPT" proxies.txt </dev/null >"$HG_LOG" 2>&1 &
+  PIDS+=($!)
+}
+
+# Non-interactive helpers that talk to the running deployment via the registry.
+honeygain_cmd() {
   sudo BASE_NS=honeyns \
        VETH_PREFIX=honey \
        WORKDIR=/tmp/honeygain_multi \
        HONEYGAIN_ACCOUNTS_FILE="$HONEYGAIN_ACCOUNTS_FILE" \
-       bash "$HONEYGAIN_SCRIPT" proxies.txt &
-  PIDS+=($!)
+       bash "$HONEYGAIN_SCRIPT" "$@"
 }
+
+honeygain_control_menu() {
+  local choice
+  while true; do
+    echo
+    echo "------ Honeygain control ------"
+    echo "  L) List instances (account / device / status)"
+    echo "  S) Stop specific account + device(s)"
+    echo "  X) Stop ALL honeygain instances"
+    echo "  T) Tail supervisor log (Ctrl+C returns here)"
+    echo "  B) Back to main menu (leave honeygain running)"
+    echo "-------------------------------"
+    read -rp "Honeygain> " choice || { echo; return; }
+    case "$choice" in
+      L|l) honeygain_cmd list ;;
+      S|s) honeygain_cmd stop ;;
+      X|x) honeygain_cmd stop all ;;
+      T|t) ( trap ' ' INT; tail -n 40 -f /tmp/honeygain_multi/supervisor.log ) || true ;;
+      B|b) return ;;
+      *)   echo "Invalid option." ;;
+    esac
+  done
+}
+
+list_honeygain() { honeygain_cmd list; }
+manage_honeygain() { honeygain_cmd stop; }
 
 menu() {
   echo -e "\n====== GRAND NETWORK MANAGER (HARDENED / MULTI-NS) ======"
@@ -465,6 +518,8 @@ menu() {
   echo "V) Install Wipter Binary"
   echo "A) Clone & Run custom repo"
   echo "H) Run Honeygain"
+  echo "S) Stop/manage Honeygain (select account + devices)"
+  echo "L) List Honeygain instances"
   echo "W) Run Wipter"
   echo "M) Run Mysterium Node"
   echo "I) Install Mysterium Node"
@@ -494,7 +549,7 @@ while true; do
       run_packetstream
       run_urnetwork
       run_castar
-      run_honeygain
+      run_honeygain nomenu
       run_wipter
       run_mysterium
       echo "All services running (staggered safe mode). Press Ctrl+C to stop."
@@ -506,7 +561,9 @@ while true; do
       read -rp "Run command (relative to repo root, e.g. ./start.sh): " runcmd
       clone_and_run "$repo" "$aname" "$runcmd"
       ;;
-    H|h) run_honeygain ; wait ;;
+    H|h) run_honeygain ;;
+    S|s) manage_honeygain ;;
+    L|l) list_honeygain ;;
     W|w) run_wipter ; wait ;;
     M|m) run_mysterium ; wait ;;
     I|i) sudo bash "$MYST_INSTALL_SCRIPT" ; wait ;;
